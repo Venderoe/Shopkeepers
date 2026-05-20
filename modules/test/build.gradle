@@ -2,21 +2,17 @@ plugins {
 	id 'java-library'
 	id 'org.checkerframework'
 	id 'eclipse'
+	id 'io.papermc.paperweight.userdev'
 }
 
 dependencies {
 	testImplementation project(':shopkeepers-main')
-	testImplementation project(path: ':shopkeepers-v1_21_R5')
-	testImplementation libs.spigot.api
+	testImplementation project(path: ':shopkeepers-v26_1_R1_paper')
+	testImplementation libs.paper.api
+	paperweight.paperDevBundle('26.1.2.build.+')
+	testImplementation 'net.kyori:adventure-text-serializer-ansi:5.1.1'
 	testImplementation libs.junit
 	testImplementation libs.hamcrest
-	(testImplementation libs.craftbukkit) {
-		artifact {
-			classifier = 'remapped-mojang'
-		}
-		// Already included in craftbukkit. Avoids accidentally using the wrong (non-remapped) type.
-		exclude group: 'org.spigotmc', module: 'minecraft-server'
-	}
 }
 
 // Note: There is no need to remap the test classes to run them.

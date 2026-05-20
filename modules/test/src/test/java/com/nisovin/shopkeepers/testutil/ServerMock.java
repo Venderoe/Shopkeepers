@@ -12,18 +12,18 @@ import org.bukkit.NamespacedKey;
 import org.bukkit.Registry;
 import org.bukkit.Server;
 import org.bukkit.Tag;
-import org.bukkit.craftbukkit.v1_21_R4.CraftRegistry;
-import org.bukkit.craftbukkit.v1_21_R4.block.data.CraftBlockData;
-import org.bukkit.craftbukkit.v1_21_R4.inventory.CraftInventoryCustom;
-import org.bukkit.craftbukkit.v1_21_R4.inventory.CraftItemFactory;
-import org.bukkit.craftbukkit.v1_21_R4.tag.CraftBlockTag;
-import org.bukkit.craftbukkit.v1_21_R4.tag.CraftDamageTag;
-import org.bukkit.craftbukkit.v1_21_R4.tag.CraftEntityTag;
-import org.bukkit.craftbukkit.v1_21_R4.tag.CraftFluidTag;
-import org.bukkit.craftbukkit.v1_21_R4.tag.CraftItemTag;
-import org.bukkit.craftbukkit.v1_21_R4.util.CraftMagicNumbers;
-import org.bukkit.craftbukkit.v1_21_R4.util.CraftNamespacedKey;
-import org.bukkit.craftbukkit.v1_21_R4.util.Versioning;
+import org.bukkit.craftbukkit.CraftRegistry;
+import org.bukkit.craftbukkit.block.data.CraftBlockData;
+import org.bukkit.craftbukkit.inventory.CraftInventoryCustom;
+import org.bukkit.craftbukkit.inventory.CraftItemFactory;
+import org.bukkit.craftbukkit.tag.CraftBlockTag;
+import org.bukkit.craftbukkit.tag.CraftDamageTag;
+import org.bukkit.craftbukkit.tag.CraftEntityTag;
+import org.bukkit.craftbukkit.tag.CraftFluidTag;
+import org.bukkit.craftbukkit.tag.CraftItemTag;
+import org.bukkit.craftbukkit.util.CraftMagicNumbers;
+import org.bukkit.craftbukkit.util.CraftNamespacedKey;
+import org.bukkit.craftbukkit.util.Versioning;
 import org.bukkit.inventory.InventoryHolder;
 import org.bukkit.tag.DamageTypeTags;
 import org.checkerframework.checker.nullness.qual.Nullable;
@@ -39,7 +39,7 @@ import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.resources.RegistryDataLoader;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.server.RegistryLayer;
 import net.minecraft.server.packs.PackType;
@@ -83,8 +83,9 @@ class ServerMock extends ProxyHandler<Server> {
 		RegistryAccess.Frozen loadedWorldgen = RegistryDataLoader.load(
 				resourceManager,
 				Unsafe.castNonNull(lookups),
-				RegistryDataLoader.WORLDGEN_REGISTRIES
-		);
+				RegistryDataLoader.WORLDGEN_REGISTRIES,
+				Runnable::run
+		).join();
 		layers = Unsafe.castNonNull(
 				layers.replaceFrom(RegistryLayer.WORLDGEN, loadedWorldgen)
 		);
@@ -118,7 +119,7 @@ class ServerMock extends ProxyHandler<Server> {
 			Class<? extends Keyed> clazz = Unsafe.castNonNull(args[0]);
 			return registers.computeIfAbsent(
 					clazz,
-					key -> CraftRegistry.createRegistry(clazz, REGISTRY_CUSTOM)
+					key -> io.papermc.paper.registry.RegistryAccess.registryAccess().getRegistry(clazz)
 			);
 		});
 
@@ -150,7 +151,7 @@ class ServerMock extends ProxyHandler<Server> {
 					Validate.notNull(args, "args is null");
 					assert args != null;
 					Material material = Unsafe.castNonNull(args[0]);
-					return CraftBlockData.newData(material.asBlockType(), Unsafe.uncheckedNull());
+					return CraftBlockData.fromString(material.asBlockType(), Unsafe.uncheckedNull());
 				}
 		);
 
@@ -171,7 +172,7 @@ class ServerMock extends ProxyHandler<Server> {
 			NamespacedKey bukkitKey = Unsafe.castNonNull(args[1]);
 			Class<?> clazz = Unsafe.castNonNull(args[2]);
 
-			ResourceLocation key = CraftNamespacedKey.toMinecraft(bukkitKey);
+			Identifier key = CraftNamespacedKey.toMinecraft(bukkitKey);
 
 			switch (registry) {
 			case Tag.REGISTRY_BLOCKS -> {

@@ -82,20 +82,20 @@ public class ForcingEntityTeleporter implements Listener {
 		this.nextTeleportEntityUuid = entity.getUniqueId();
 		this.toLocation = toLocation;
 
-		boolean result = entity.teleport(toLocation);
+		entity.teleportAsync(toLocation).thenAccept(result -> {
+			// This reset is required if the teleport did not actually trigger an event
+			this.resetForcedEntityTeleport();
 
-		// This reset is required if the teleport did not actually trigger an event (e.g. on Spigot
-		// instead of Paper servers):
-		this.resetForcedEntityTeleport();
+			if (!result) return;
+			if (!entity.isValid()) return;
 
-		// MC-44654: For some entities (e.g. end crystals), the server does not automatically send
-		// an update packet to the client when their position changes. We force the client-side
-		// update here by toggling some other entity property.
-		var customNameVisible = entity.isCustomNameVisible();
-		entity.setCustomNameVisible(!customNameVisible);
-		entity.setCustomNameVisible(customNameVisible);
+			// MC-44654 client-side update workaround
+			var customNameVisible = entity.isCustomNameVisible();
+			entity.setCustomNameVisible(!customNameVisible);
+			entity.setCustomNameVisible(customNameVisible);
+		});
 
-		return result;
+		return true;
 	}
 
 	/**

@@ -154,13 +154,13 @@ subprojects {
 
 		dependencies {
 			// ECJ compiler for null analysis
-			ecj 'org.eclipse.jdt:ecj:3.38.0'
+			ecj 'org.eclipse.jdt:ecj:3.45.0'
 
 			paperCompileOnly libs.paper.api
 		}
 
 		java {
-			sourceCompatibility = JavaVersion.VERSION_21
+			sourceCompatibility = JavaVersion.VERSION_25
 		}
 
 		// Null analysis with the Eclipse compiler:

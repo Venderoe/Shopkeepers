@@ -16,7 +16,6 @@ import org.bukkit.Server;
 import org.bukkit.World;
 import org.bukkit.entity.Player;
 import org.bukkit.event.HandlerList;
-import org.bukkit.scheduler.BukkitTask;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import com.nisovin.shopkeepers.SKShopkeepersPlugin;
@@ -28,6 +27,8 @@ import com.nisovin.shopkeepers.shopkeeper.registry.SKShopkeeperRegistry;
 import com.nisovin.shopkeepers.shopkeeper.spawning.ShopkeeperSpawner;
 import com.nisovin.shopkeepers.shopkeeper.ticking.ShopkeeperTicker;
 import com.nisovin.shopkeepers.util.bukkit.MutableChunkCoords;
+import com.nisovin.shopkeepers.util.bukkit.SchedulerUtils;
+import com.nisovin.shopkeepers.util.bukkit.TaskHandle;
 import com.nisovin.shopkeepers.util.bukkit.TextUtils;
 import com.nisovin.shopkeepers.util.java.Validate;
 import com.nisovin.shopkeepers.util.logging.Log;
@@ -303,8 +304,18 @@ public class ShopkeeperChunkActivator {
 
 		void start() {
 			assert !chunkData.isActive() && !chunkData.isActivationDelayed();
-			BukkitTask task = Bukkit.getScheduler().runTaskLater(
+			ChunkCoords chunkCoords = chunkData.getChunkCoords();
+			World world = chunkCoords.getWorld();
+			if (world == null) return;
+			Location location = new Location(
+					world,
+					(chunkCoords.getChunkX() << 4),
+					0,
+					(chunkCoords.getChunkZ() << 4)
+			);
+			TaskHandle task = SchedulerUtils.runRegionTaskLaterOrOmit(
 					plugin,
+					location,
 					this,
 					CHUNK_ACTIVATION_DELAY_TICKS
 			);
@@ -321,7 +332,7 @@ public class ShopkeeperChunkActivator {
 
 	void activatePendingNearbyChunksDelayed(Player player) {
 		assert player != null;
-		Bukkit.getScheduler().runTask(plugin, new ActivatePendingNearbyChunksTask(player));
+		SchedulerUtils.runEntityTaskOrOmit(plugin, player, new ActivatePendingNearbyChunksTask(player));
 	}
 
 	private class ActivatePendingNearbyChunksTask implements Runnable {

@@ -8,11 +8,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import org.bukkit.scheduler.BukkitRunnable;
+import com.nisovin.shopkeepers.shopobjects.entity.base.BaseEntityShopObject;
+import org.bukkit.entity.Entity;
+import org.checkerframework.checker.nullness.qual.Nullable;
 
 import com.nisovin.shopkeepers.SKShopkeepersPlugin;
 import com.nisovin.shopkeepers.debug.DebugOptions;
 import com.nisovin.shopkeepers.shopkeeper.AbstractShopkeeper;
+import com.nisovin.shopkeepers.util.bukkit.SchedulerUtils;
+import com.nisovin.shopkeepers.util.bukkit.TaskHandle;
 import com.nisovin.shopkeepers.util.java.CyclicCounter;
 import com.nisovin.shopkeepers.util.java.Validate;
 import com.nisovin.shopkeepers.util.logging.Log;
@@ -93,6 +97,7 @@ public class ShopkeeperTicker {
 	// ticking state multiple times during the same tick we would otherwise lose the callbacks for
 	// the intermediate ticking state changes.
 	private final Map<AbstractShopkeeper, Boolean> pendingTickingChanges = new LinkedHashMap<>();
+	private @Nullable TaskHandle tickTask = null;
 
 	public ShopkeeperTicker(SKShopkeepersPlugin plugin) {
 		Validate.notNull(plugin, "plugin is null");
@@ -124,6 +129,10 @@ public class ShopkeeperTicker {
 			pendingTickingChanges.clear();
 		} else {
 			this.ensureEmpty();
+		}
+		if (tickTask != null) {
+			tickTask.cancel();
+			tickTask = null;
 		}
 	}
 
@@ -221,12 +230,12 @@ public class ShopkeeperTicker {
 		new ShopkeeperTickTask().start();
 	}
 
-	private final class ShopkeeperTickTask extends BukkitRunnable {
+	private final class ShopkeeperTickTask implements Runnable {
 
 		private static final int PERIOD = TICKING_PERIOD_TICKS / TICKING_GROUPS;
 
 		void start() {
-			this.runTaskTimer(plugin, PERIOD, PERIOD);
+			tickTask = SchedulerUtils.runGlobalTaskTimerOrOmit(plugin, this, PERIOD, PERIOD);
 		}
 
 		@Override
@@ -264,19 +273,44 @@ public class ShopkeeperTicker {
 
 	private void tickShopkeeper(AbstractShopkeeper shopkeeper) {
 		assert shopkeeper != null;
-		// Skip if the shopkeeper is no longer ticking (e.g. if it got removed or deactivated while
-		// it was pending to be ticked):
+
+		// Skip if the shopkeeper is no longer ticking
 		if (!shopkeeper.isTicking()) return;
 
-		// Tick the shopkeeper:
 		try {
+			// Try to execute on entity scheduler if possible
+			if (shopkeeper.getShopObject() instanceof BaseEntityShopObject<?> shopObject) {
+
+				Entity entity = shopObject.getEntity();
+
+				if (entity == null || entity.isDead()) {
+					return;
+				}
+
+				SchedulerUtils.runEntityTaskOrOmit(plugin, entity, () -> {
+					try {
+						shopkeeper.tick();
+
+						if (shopkeeper.isDirty()) {
+							dirty = true;
+						}
+					} catch (Throwable e) {
+						Log.severe(shopkeeper.getLogPrefix() + "Error during ticking!", e);
+					}
+				});
+
+				return;
+			}
+
+			// Non-entity shopkeepers
 			shopkeeper.tick();
+
+			if (shopkeeper.isDirty()) {
+				dirty = true;
+			}
+
 		} catch (Throwable e) {
 			Log.severe(shopkeeper.getLogPrefix() + "Error during ticking!", e);
-		}
-
-		if (shopkeeper.isDirty()) {
-			dirty = true;
 		}
 	}
 }

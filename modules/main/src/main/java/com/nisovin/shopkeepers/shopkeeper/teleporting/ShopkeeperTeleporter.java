@@ -82,19 +82,22 @@ public final class ShopkeeperTeleporter {
 		teleportLocation.setDirection(shopkeeperLocation.toVector().subtract(teleportPlayerEyeLocationVector));
 		teleportLocation.setPitch(0);
 
-		if (!player.teleport(teleportLocation)) {
-			if (sender != null) {
-				TextUtils.sendMessage(sender, Messages.teleportFailed);
+		player.teleportAsync(teleportLocation).thenAccept(success -> {
+			if (!success) {
+				if (sender != null) {
+					TextUtils.sendMessage(sender, Messages.teleportFailed);
+				}
+				return;
 			}
-			return false;
-		}
 
-		if (sender != null) {
-			TextUtils.sendMessage(sender, Messages.teleportSuccess,
-					"player", TextUtils.getPlayerText(player),
-					"shop", TextUtils.getShopText(shopkeeper)
-			);
-		}
+			if (sender != null) {
+				TextUtils.sendMessage(sender, Messages.teleportSuccess,
+						"player", TextUtils.getPlayerText(player),
+						"shop", TextUtils.getShopText(shopkeeper)
+				);
+			}
+		});
+
 		return true;
 	}
 

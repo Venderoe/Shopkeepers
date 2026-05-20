@@ -3,7 +3,6 @@ package com.nisovin.shopkeepers.util.inventory;
 import java.util.Objects;
 import java.util.function.Predicate;
 
-import org.bukkit.Bukkit;
 import org.bukkit.entity.HumanEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.InventoryType;
@@ -18,6 +17,7 @@ import com.nisovin.shopkeepers.api.internal.util.Unsafe;
 import com.nisovin.shopkeepers.api.util.UnmodifiableItemStack;
 import com.nisovin.shopkeepers.util.annotations.ReadOnly;
 import com.nisovin.shopkeepers.util.annotations.ReadWrite;
+import com.nisovin.shopkeepers.util.bukkit.SchedulerUtils;
 import com.nisovin.shopkeepers.util.java.Validate;
 
 /**
@@ -636,14 +636,14 @@ public final class InventoryUtils {
 
 	public static void updateInventoryLater(Player player) {
 		Validate.notNull(player, "player is null");
-		Bukkit.getScheduler().runTask(ShopkeepersPlugin.getInstance(), player::updateInventory);
+		SchedulerUtils.runEntityTaskOrOmit(ShopkeepersPlugin.getInstance(), player, player::updateInventory);
 	}
 
 	// Only closes the player's open inventory view if it is still the specified view after the
 	// delay:
 	public static void closeInventoryDelayed(InventoryView inventoryView) {
 		Validate.notNull(inventoryView, "inventoryView is null");
-		Bukkit.getScheduler().runTask(ShopkeepersPlugin.getInstance(), () -> {
+		SchedulerUtils.runEntityTaskOrOmit(ShopkeepersPlugin.getInstance(), (Player) inventoryView.getPlayer(), () -> {
 			InventoryView openInventoryView = inventoryView.getPlayer().getOpenInventory();
 			if (inventoryView == openInventoryView) {
 				inventoryView.close(); // Same as player.closeInventory()
@@ -653,7 +653,11 @@ public final class InventoryUtils {
 
 	public static void closeInventoryDelayed(Player player) {
 		// Cast to Runnable to resolve ambiguity error when compiling against Paper-API:
-		Bukkit.getScheduler().runTask(ShopkeepersPlugin.getInstance(), (Runnable) player::closeInventory);
+		SchedulerUtils.runEntityTaskOrOmit(
+				ShopkeepersPlugin.getInstance(),
+				player,
+				(Runnable) player::closeInventory
+		);
 	}
 
 	// This can for example be used during the handling of inventory interaction events.
@@ -663,9 +667,27 @@ public final class InventoryUtils {
 			@ReadOnly @Nullable ItemStack itemStack
 	) {
 		Validate.notNull(inventory, "inventory is null");
-		Bukkit.getScheduler().runTask(ShopkeepersPlugin.getInstance(), () -> {
+		runInventoryTask(inventory, () -> {
 			inventory.setItem(slot, itemStack); // This copies the item internally
 		});
+	}
+
+	private static void runInventoryTask(Inventory inventory, Runnable task) {
+		if (inventory instanceof PlayerInventory) {
+			assert inventory.getHolder() instanceof Player;
+			Player owner = Unsafe.castNonNull(inventory.getHolder());
+			SchedulerUtils.runEntityTaskOrOmit(ShopkeepersPlugin.getInstance(), owner, task);
+			return;
+		}
+
+		for (HumanEntity viewer : inventory.getViewers()) {
+			if (viewer instanceof Player player) {
+				SchedulerUtils.runEntityTaskOrOmit(ShopkeepersPlugin.getInstance(), player, task);
+				return;
+			}
+		}
+
+		SchedulerUtils.runGlobalTaskOrOmit(ShopkeepersPlugin.getInstance(), task);
 	}
 
 	private InventoryUtils() {

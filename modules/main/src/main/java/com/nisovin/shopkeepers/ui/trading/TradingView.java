@@ -261,7 +261,7 @@ public class TradingView extends View {
 		// This needs to happen after the event has been handled, because Minecraft will set the
 		// result slot afterwards:
 		SKUISession uiSession = SKShopkeepersPlugin.getInstance().getUIRegistry().getSession(player);
-		Bukkit.getScheduler().runTask(ShopkeepersPlugin.getInstance(), () -> {
+		SchedulerUtils.runEntityTaskOrOmit(ShopkeepersPlugin.getInstance(), player, () -> {
 			if (!uiSession.isValid()) return;
 			if (clickEvent.isCancelled()) return;
 			// Logs if it encounters items that are not strictly matching and then clears the result
