@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
+import com.nisovin.shopkeepers.util.bukkit.SchedulerUtils;
 import org.bukkit.Difficulty;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -248,7 +249,17 @@ public abstract class BaseEntityShopObject<E extends Entity>
 
 		// Remove the entity (if it hasn't been removed already):
 		if (!entity.isDead()) {
-			entity.remove();
+			Entity currentEntity = entity;
+
+			SchedulerUtils.runEntityTaskOrOmit(
+					SKShopkeepersPlugin.getInstance(),
+					currentEntity,
+					() -> {
+						if (!currentEntity.isDead()) {
+							currentEntity.remove();
+						}
+					}
+			);
 		}
 
 		this.entity = null;
