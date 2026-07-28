@@ -8,7 +8,6 @@ import org.bstats.bukkit.Metrics;
 import com.nisovin.shopkeepers.api.internal.util.Unsafe;
 import com.nisovin.shopkeepers.config.Settings;
 import com.nisovin.shopkeepers.dependencies.citizens.CitizensDependency;
-import com.nisovin.shopkeepers.dependencies.towny.TownyDependency;
 import com.nisovin.shopkeepers.dependencies.worldguard.WorldGuardDependency;
 import com.nisovin.shopkeepers.util.java.MapUtils;
 
@@ -42,11 +41,6 @@ public class FeaturesChart extends Metrics.DrilldownPie {
 					allFeatures,
 					"require-world-guard-allow-shop-flag",
 					Settings.requireWorldGuardAllowShopFlag && WorldGuardDependency.isPluginEnabled()
-			);
-			addFeatureEntry(
-					allFeatures,
-					"enable-towny-restrictions",
-					Settings.enableTownyRestrictions && TownyDependency.isPluginEnabled()
 			);
 			addFeatureEntry(
 					allFeatures,

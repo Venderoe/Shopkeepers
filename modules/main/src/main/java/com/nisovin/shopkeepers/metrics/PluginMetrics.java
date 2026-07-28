@@ -33,7 +33,6 @@ public class PluginMetrics {
 		Metrics metrics = new Metrics(plugin);
 		metrics.addCustomChart(new CitizensChart());
 		metrics.addCustomChart(new WorldGuardChart());
-		metrics.addCustomChart(new TownyChart());
 		metrics.addCustomChart(new VaultEconomyChart());
 		metrics.addCustomChart(new GringottsChart());
 		metrics.addCustomChart(new ShopkeepersCountChart(shopkeeperRegistry));

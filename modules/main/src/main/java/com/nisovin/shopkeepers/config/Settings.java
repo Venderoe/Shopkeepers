@@ -90,8 +90,6 @@ public class Settings extends Config {
 	public static boolean requireWorldGuardAllowShopFlag = false;
 	public static boolean registerWorldGuardAllowShopFlag = true;
 
-	public static boolean enableTownyRestrictions = false;
-
 	public static boolean checkSpawnLocationInteractionResult = false;
 
 	public static boolean disableInventoryVerification = false;

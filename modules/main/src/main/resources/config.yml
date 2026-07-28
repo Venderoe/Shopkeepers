@@ -119,10 +119,6 @@ require-world-guard-allow-shop-flag: false
 # server reload!
 register-world-guard-allow-shop-flag: true
 
-# If enabled, players will only be able to place shopkeepers in places that
-# have been designated as commercial areas by Towny.
-enable-towny-restrictions: false
-
 # If enabled, players are only able to place shopkeepers in places where no
 # other plugin denies them to interact with blocks.
 check-spawn-location-interaction-result: false

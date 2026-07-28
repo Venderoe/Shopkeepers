@@ -25,7 +25,6 @@ import org.bukkit.event.player.PlayerQuitEvent;
 import org.bukkit.plugin.Plugin;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
-import com.nisovin.shopkeepers.api.internal.util.Unsafe;
 import com.nisovin.shopkeepers.util.bukkit.EventUtils;
 import com.nisovin.shopkeepers.util.interaction.TestPlayerInteractEvent;
 import com.nisovin.shopkeepers.util.java.Validate;
@@ -57,12 +56,14 @@ class UIListener implements Listener {
 	// stack, and then retrieved from the stack during the late processing of the event. We use a
 	// stack here to account for plugins that might recursively call other inventory events from
 	// within their event handler.
+	// Folia can process inventory events for different regions concurrently, so the stack has to
+	// be isolated per event thread.
 	// Usually, the views are expected to still be valid during the late event handling. This
 	// assumption is in accordance with the description of the InventoryClickEvent, which states
 	// that event handlers are supposed to not invoke any operations that might close the player's
 	// current inventory view. However, in order to guard against plugins that ignore this Bukkit
 	// API note, we check if the view is still valid and skip the late event handling if it is not.
-	private final Deque<Object> eventHandlerStack = new ArrayDeque<>();
+	private final ThreadLocal<Deque<Object>> eventHandlerStack = ThreadLocal.withInitial(ArrayDeque::new);
 
 	UIListener(Plugin plugin, UISessionManager uiSessionManager) {
 		Validate.notNull(plugin, "plugin is null");
@@ -142,12 +143,21 @@ class UIListener implements Listener {
 		}
 
 		// Keep track of the handling view:
-		eventHandlerStack.push(view != null ? view : NO_VIEW);
+		eventHandlerStack.get().push(view != null ? view : NO_VIEW);
 	}
 
 	private void onInventoryEventLate(InventoryEvent event) {
-		// Not expected to be empty:
-		Object handlingView = Unsafe.assertNonNull(eventHandlerStack.pop());
+		Deque<Object> stack = eventHandlerStack.get();
+		if (stack.isEmpty()) {
+			Log.debug(() -> "Skipping late UI handling for inventory event '"
+					+ event.getEventName() + "' without matching early handling.");
+			return;
+		}
+
+		Object handlingView = stack.pop();
+		if (stack.isEmpty()) {
+			eventHandlerStack.remove();
+		}
 		if (handlingView == NO_VIEW) return; // Ignore the event
 
 		View view = (View) handlingView;

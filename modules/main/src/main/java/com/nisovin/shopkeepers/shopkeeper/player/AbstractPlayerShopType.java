@@ -18,7 +18,6 @@ import com.nisovin.shopkeepers.api.shopkeeper.player.PlayerShopCreationData;
 import com.nisovin.shopkeepers.api.shopkeeper.player.PlayerShopType;
 import com.nisovin.shopkeepers.config.Settings;
 import com.nisovin.shopkeepers.container.ShopContainers;
-import com.nisovin.shopkeepers.dependencies.towny.TownyDependency;
 import com.nisovin.shopkeepers.dependencies.worldguard.WorldGuardDependency;
 import com.nisovin.shopkeepers.lang.Messages;
 import com.nisovin.shopkeepers.playershops.PlayerShopsLimit;
@@ -146,16 +145,6 @@ public abstract class AbstractPlayerShopType<T extends AbstractPlayerShopkeeper>
 		// Check WorldGuard restrictions:
 		if (Settings.enableWorldGuardRestrictions) {
 			if (!WorldGuardDependency.isShopAllowed(player, spawnLocation)) {
-				if (player != null) {
-					TextUtils.sendMessage(player, Messages.restrictedArea);
-				}
-				return false;
-			}
-		}
-
-		// Check Towny restrictions:
-		if (Settings.enableTownyRestrictions) {
-			if (!TownyDependency.isCommercialArea(spawnLocation)) {
 				if (player != null) {
 					TextUtils.sendMessage(player, Messages.restrictedArea);
 				}
