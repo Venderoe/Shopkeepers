@@ -11,13 +11,10 @@ BUILD_TYPE="full"
 if [ $# -eq 1 ] && [ "$1" = "minimal" ]; then
     echo "Minimal build: Only building the api project."
     BUILD_TYPE="minimal"
-else
-    # Build and install the required Spigot dependencies:
-    ./scripts/installSpigotDependencies.sh
 fi
 
-# We require Java 21 to build:
-source scripts/installJDK.sh 21
+# We require Java 25 to build:
+source scripts/installJDK.sh 25
 
 # Build via Gradle:
 if [ "$BUILD_TYPE" = "minimal" ]; then

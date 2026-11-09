@@ -45,8 +45,7 @@ public final class Compat {
 	// Note: On Paper, since 1.21.6, the mappings version is no longer supported and we use the
 	// Minecraft version instead.
 	static {
-		// Registered in the order from latest to oldest.
-		register(new CompatVersion("26_1_R1_paper", "26.1.2", "26.1.2"));
+		register(new CompatVersion("26_3_R1_paper", "26.3", "26.3"));
 		register(new CompatVersion(
 				FallbackCompatProvider.VERSION_ID,
 				FallbackCompatProvider.VERSION_ID,

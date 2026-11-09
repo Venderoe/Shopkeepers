@@ -6,6 +6,7 @@ import java.util.Map;
 import org.bstats.bukkit.Metrics;
 
 import com.nisovin.shopkeepers.api.internal.util.Unsafe;
+import com.nisovin.shopkeepers.api.shopkeeper.ShopkeeperRegistry;
 import com.nisovin.shopkeepers.config.Settings;
 import com.nisovin.shopkeepers.dependencies.citizens.CitizensDependency;
 import com.nisovin.shopkeepers.dependencies.worldguard.WorldGuardDependency;
@@ -18,7 +19,7 @@ import com.nisovin.shopkeepers.util.java.MapUtils;
  */
 public class FeaturesChart extends Metrics.DrilldownPie {
 
-	public FeaturesChart() {
+	public FeaturesChart(ShopkeeperRegistry shopkeeperRegistry) {
 		super("used_features", () -> {
 			Map<String, Map<String, Integer>> allFeatures = new LinkedHashMap<>();
 			// Plugin compatibility features:
@@ -26,6 +27,11 @@ public class FeaturesChart extends Metrics.DrilldownPie {
 					allFeatures,
 					"check-shop-interaction-result",
 					Settings.checkShopInteractionResult
+			);
+			addFeatureEntry(
+					allFeatures,
+					"enable-left-click-interaction",
+					Settings.enableLeftClickInteraction
 			);
 			addFeatureEntry(
 					allFeatures,
@@ -59,6 +65,7 @@ public class FeaturesChart extends Metrics.DrilldownPie {
 					"gravity-chunk-range",
 					Settings.gravityChunkRange
 			);
+			// Note: Setting name no longer matches feature name.
 			addFeatureEntry(
 					allFeatures,
 					"mob-behavior-tick-period",
@@ -98,6 +105,16 @@ public class FeaturesChart extends Metrics.DrilldownPie {
 			);
 			addFeatureEntry(
 					allFeatures,
+					"player-shop-expiration-days",
+					Settings.playerShopExpirationDays > 0
+			);
+			addFeatureEntry(
+					allFeatures,
+					"hired-player-shop-expiration-days",
+					Settings.hiredPlayerShopExpirationDays > 0
+			);
+			addFeatureEntry(
+					allFeatures,
 					"tax-rate",
 					Settings.taxRate > 0
 			);
@@ -116,10 +133,11 @@ public class FeaturesChart extends Metrics.DrilldownPie {
 					"notify-players-about-trades",
 					Settings.notifyPlayersAboutTrades
 			);
+			// Note: Setting name no longer matches feature name.
 			addFeatureEntry(
 					allFeatures,
 					"notify-shop-owners-about-trades",
-					Settings.notifyShopOwnersAboutTrades
+					Settings.notifyShopMembersAboutTrades
 			);
 			addFeatureEntry(
 					allFeatures,
@@ -140,6 +158,12 @@ public class FeaturesChart extends Metrics.DrilldownPie {
 					allFeatures,
 					"increment-villager-statistics",
 					Settings.incrementVillagerStatistics
+			);
+			addFeatureEntry(
+					allFeatures,
+					"uses-shop-members",
+					shopkeeperRegistry.getAllPlayerShopkeepers().stream()
+							.anyMatch(x -> x.getMembers().size() > 0)
 			);
 			return Unsafe.cast(allFeatures);
 		});

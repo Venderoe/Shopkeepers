@@ -8,13 +8,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import com.nisovin.shopkeepers.shopobjects.entity.base.BaseEntityShopObject;
+import org.bukkit.Location;
 import org.bukkit.entity.Entity;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import com.nisovin.shopkeepers.SKShopkeepersPlugin;
 import com.nisovin.shopkeepers.debug.DebugOptions;
 import com.nisovin.shopkeepers.shopkeeper.AbstractShopkeeper;
+import com.nisovin.shopkeepers.shopobjects.entity.base.BaseEntityShopObject;
 import com.nisovin.shopkeepers.util.bukkit.SchedulerUtils;
 import com.nisovin.shopkeepers.util.bukkit.TaskHandle;
 import com.nisovin.shopkeepers.util.java.CyclicCounter;
@@ -89,7 +90,6 @@ public class ShopkeeperTicker {
 
 	private final CyclicCounter activeTickingGroup = new CyclicCounter(TICKING_GROUPS);
 	private boolean currentlyTicking = false;
-	private boolean dirty;
 
 	// True: Ticking started, False: Ticking stopped
 	// Note: The start/stop-ticking callbacks for these pending changes have already been invoked
@@ -124,7 +124,6 @@ public class ShopkeeperTicker {
 		if (currentlyTicking) {
 			// Reset:
 			currentlyTicking = false;
-			dirty = false;
 			tickingGroups.forEach(TickingGroup::clear);
 			pendingTickingChanges.clear();
 		} else {
@@ -245,8 +244,6 @@ public class ShopkeeperTicker {
 	}
 
 	private void tickShopkeepers() {
-		dirty = false;
-
 		currentlyTicking = true;
 		TickingGroup tickingGroup = this.getTickingGroup(activeTickingGroup.getValue());
 		tickingGroup.getShopkeepers().forEach(this::tickShopkeeper);
@@ -261,11 +258,6 @@ public class ShopkeeperTicker {
 			}
 		});
 		pendingTickingChanges.clear();
-
-		// Trigger a delayed save if any of the shopkeepers got marked as dirty:
-		if (dirty) {
-			plugin.getShopkeeperStorage().saveDelayed();
-		}
 
 		// Update the active ticking group:
 		activeTickingGroup.getAndIncrement();
@@ -289,11 +281,7 @@ public class ShopkeeperTicker {
 
 				SchedulerUtils.runEntityTaskOrOmit(plugin, entity, () -> {
 					try {
-						shopkeeper.tick();
-
-						if (shopkeeper.isDirty()) {
-							dirty = true;
-						}
+						this.tickAndSave(shopkeeper);
 					} catch (Throwable e) {
 						Log.severe(shopkeeper.getLogPrefix() + "Error during ticking!", e);
 					}
@@ -302,15 +290,34 @@ public class ShopkeeperTicker {
 				return;
 			}
 
-			// Non-entity shopkeepers
-			shopkeeper.tick();
-
-			if (shopkeeper.isDirty()) {
-				dirty = true;
+			Location location = shopkeeper.getLocation();
+			if (location != null) {
+				SchedulerUtils.runRegionTaskOrOmit(plugin, location, () -> {
+					try {
+						this.tickAndSave(shopkeeper);
+					} catch (Throwable e) {
+						Log.severe(shopkeeper.getLogPrefix() + "Error during ticking!", e);
+					}
+				});
+			} else if (shopkeeper.isVirtual()) {
+				this.tickAndSave(shopkeeper);
 			}
 
 		} catch (Throwable e) {
 			Log.severe(shopkeeper.getLogPrefix() + "Error during ticking!", e);
+		}
+	}
+
+	private void tickAndSave(AbstractShopkeeper shopkeeper) {
+		if (!shopkeeper.isValid() || !shopkeeper.isTicking()) return;
+
+		shopkeeper.tick();
+
+		// If the shopkeeper was modified or deleted during the tick: Subsequently trigger a delayed
+		// save of the storage.
+		if (shopkeeper.isDirty() || !shopkeeper.isValid()) {
+			SchedulerUtils.runGlobalTaskOrOmit(plugin,
+					() -> plugin.getShopkeeperStorage().saveDelayed());
 		}
 	}
 }

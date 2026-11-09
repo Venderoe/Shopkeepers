@@ -17,7 +17,6 @@ import com.nisovin.shopkeepers.shopobjects.entity.base.BaseEntityShopObjectCreat
 import com.nisovin.shopkeepers.shopobjects.entity.base.BaseEntityShopObjectType;
 import com.nisovin.shopkeepers.shopobjects.living.SKLivingShopObject;
 import com.nisovin.shopkeepers.ui.editor.Button;
-import com.nisovin.shopkeepers.ui.editor.EditorView;
 import com.nisovin.shopkeepers.ui.editor.ShopkeeperActionButton;
 import com.nisovin.shopkeepers.util.data.property.BasicProperty;
 import com.nisovin.shopkeepers.util.data.property.Property;
@@ -54,6 +53,7 @@ public class BabyableShop<E extends Ageable> extends SKLivingShopObject<E> {
 		case "WANDERING_TRADER":
 		case "PIGLIN_BRUTE": // Added in MC 1.16.2
 		case "FROG": // Added in MC 1.19
+		case "SULFUR_CUBE": // Added in MC 26.2. Uses a dedicated size property instead.
 			return false;
 		default:
 			return true;
@@ -129,12 +129,12 @@ public class BabyableShop<E extends Ageable> extends SKLivingShopObject<E> {
 	private Button getBabyEditorButton() {
 		return new ShopkeeperActionButton() {
 			@Override
-			public @Nullable ItemStack getIcon(EditorView editorView) {
+			public @Nullable ItemStack getIcon() {
 				return getBabyEditorItem();
 			}
 
 			@Override
-			protected boolean runAction(EditorView editorView, InventoryClickEvent clickEvent) {
+			protected boolean runAction(InventoryClickEvent clickEvent) {
 				cycleBaby();
 				return true;
 			}

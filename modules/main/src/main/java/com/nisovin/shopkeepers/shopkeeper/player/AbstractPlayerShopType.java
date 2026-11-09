@@ -13,10 +13,13 @@ import com.nisovin.shopkeepers.SKShopkeepersPlugin;
 import com.nisovin.shopkeepers.api.events.PlayerCreatePlayerShopkeeperEvent;
 import com.nisovin.shopkeepers.api.internal.util.Unsafe;
 import com.nisovin.shopkeepers.api.shopkeeper.ShopCreationData;
-import com.nisovin.shopkeepers.api.shopkeeper.ShopkeeperRegistry;
+import com.nisovin.shopkeepers.api.shopkeeper.Shopkeeper;
+import com.nisovin.shopkeepers.api.shopkeeper.container.ShopContainer;
 import com.nisovin.shopkeepers.api.shopkeeper.player.PlayerShopCreationData;
 import com.nisovin.shopkeepers.api.shopkeeper.player.PlayerShopType;
+import com.nisovin.shopkeepers.api.shopkeeper.player.PlayerShopkeeper;
 import com.nisovin.shopkeepers.config.Settings;
+import com.nisovin.shopkeepers.container.SKShopContainer;
 import com.nisovin.shopkeepers.container.ShopContainers;
 import com.nisovin.shopkeepers.dependencies.worldguard.WorldGuardDependency;
 import com.nisovin.shopkeepers.lang.Messages;
@@ -24,7 +27,6 @@ import com.nisovin.shopkeepers.playershops.PlayerShopsLimit;
 import com.nisovin.shopkeepers.shopcreation.ContainerSelection;
 import com.nisovin.shopkeepers.shopcreation.ShopkeeperCreation;
 import com.nisovin.shopkeepers.shopkeeper.AbstractShopType;
-import com.nisovin.shopkeepers.shopkeeper.AbstractShopkeeper;
 import com.nisovin.shopkeepers.util.bukkit.BlockLocation;
 import com.nisovin.shopkeepers.util.bukkit.TextUtils;
 import com.nisovin.shopkeepers.util.interaction.InteractionUtils;
@@ -95,8 +97,7 @@ public abstract class AbstractPlayerShopType<T extends AbstractPlayerShopkeeper>
 
 		// Check the max shops limit:
 		if (maxShopsLimit != Integer.MAX_VALUE) {
-			ShopkeeperRegistry shopkeeperRegistry = SKShopkeepersPlugin.getInstance().getShopkeeperRegistry();
-			int count = shopkeeperRegistry.getPlayerShopkeepersByOwner(creator.getUniqueId()).size();
+			int count = PlayerShopsLimit.getOwnedShopsCount(creator.getUniqueId());
 			if (count >= maxShopsLimit) {
 				TextUtils.sendMessage(creator, Messages.tooManyShops);
 				return false;
@@ -111,7 +112,7 @@ public abstract class AbstractPlayerShopType<T extends AbstractPlayerShopkeeper>
 			@Nullable Location spawnLocation,
 			@Nullable BlockFace blockFace,
 			@Nullable ShopCreationData shopCreationData,
-			@Nullable AbstractShopkeeper shopkeeper
+			@Nullable Shopkeeper shopkeeper
 	) {
 		if (!super.validateSpawnLocation(player, spawnLocation, blockFace, shopCreationData, shopkeeper)) {
 			return false;
@@ -119,26 +120,33 @@ public abstract class AbstractPlayerShopType<T extends AbstractPlayerShopkeeper>
 
 		if (spawnLocation == null) return true; // Nothing to validate
 
-		// Check if the shop container is too far away:
-		BlockLocation containerLocation = null;
+		// Check that all shop containers are within the configured maximum distance:
+		// This also catches cases in which players try to place or move the shopkeeper to a world
+		// different to its container(s).
+		double maxContainerDistanceSq = Settings.maxContainerDistance * Settings.maxContainerDistance;
 		if (shopCreationData != null) {
+			// Check if the selected shop container is too far away:
 			assert shopCreationData instanceof PlayerShopCreationData;
 			PlayerShopCreationData playerShopCreationData = (PlayerShopCreationData) shopCreationData;
-			containerLocation = BlockLocation.of(playerShopCreationData.getShopContainer());
-		} else if (shopkeeper != null) {
-			assert shopkeeper instanceof AbstractPlayerShopkeeper;
-			AbstractPlayerShopkeeper playerShopkeeper = (AbstractPlayerShopkeeper) shopkeeper;
-			containerLocation = playerShopkeeper.getContainerLocation();
-		}
-
-		if (containerLocation != null) {
-			// Check if the selected container is too far away:
-			double maxContainerDistanceSq = Settings.maxContainerDistance * Settings.maxContainerDistance;
+			BlockLocation containerLocation = BlockLocation.of(playerShopCreationData.getShopContainer());
 			if (containerLocation.getBlockCenterDistanceSquared(spawnLocation) > maxContainerDistanceSq) {
 				if (player != null) {
 					TextUtils.sendMessage(player, Messages.containerTooFarAway);
 				}
 				return false;
+			}
+		} else if (shopkeeper != null) {
+			// All of the shop's containers must be within range of the new location:
+			assert shopkeeper instanceof PlayerShopkeeper;
+			PlayerShopkeeper playerShopkeeper = (PlayerShopkeeper) shopkeeper;
+			for (ShopContainer container : playerShopkeeper.getContainers()) {
+				BlockLocation containerLocation = ((SKShopContainer) container).getLocation();
+				if (containerLocation.getBlockCenterDistanceSquared(spawnLocation) > maxContainerDistanceSq) {
+					if (player != null) {
+						TextUtils.sendMessage(player, Messages.containerTooFarAway);
+					}
+					return false;
+				}
 			}
 		}
 

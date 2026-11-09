@@ -13,6 +13,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.Chunk;
 import org.bukkit.Difficulty;
 import org.bukkit.FluidCollisionMode;
+import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
@@ -37,7 +38,9 @@ import com.nisovin.shopkeepers.util.logging.Log;
 public final class EntityUtils {
 
 	private static final double GROUND_DISTANCE_CHECK_OFFSET = 0.98D;
-	private static final double GROUND_DISTANCE_CHECK_RANGE = 1.0D;
+	// Range: This also accounts for partial blocks below the checked location that the entity may
+	// be able to stand on (e.g. on top of chest blocks):
+	private static final double GROUND_DISTANCE_CHECK_RANGE = 1.96D;
 
 	// Temporarily re-used location object:
 	private static final Location SHARED_LOCATION = new Location(null, 0, 0, 0);
@@ -464,6 +467,10 @@ public final class EntityUtils {
 
 	public static Stream<Player> getOnlinePlayersStream() {
 		return Unsafe.castNonNull(Bukkit.getOnlinePlayers().stream());
+	}
+
+	public static boolean isSpectator(Entity entity) {
+		return entity instanceof Player player && player.getGameMode() == GameMode.SPECTATOR;
 	}
 
 	private EntityUtils() {

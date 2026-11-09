@@ -90,6 +90,8 @@ public class ShopkeepersCommand extends BaseCommand {
 		childCommands.register(new CommandSetTradePerm());
 		childCommands.register(new CommandSetTradedCommand());
 		childCommands.register(new CommandSetForHire());
+		childCommands.register(new CommandSetNotForHire());
+		childCommands.register(new CommandExpiration());
 		childCommands.register(new CommandSnapshot(confirmations));
 		childCommands.register(new CommandEditVillager());
 		// Hidden commands:
@@ -105,6 +107,7 @@ public class ShopkeepersCommand extends BaseCommand {
 		childCommands.register(new CommandYaml());
 		childCommands.register(new CommandDebugCreateShops(plugin));
 		childCommands.register(new CommandTestDamage(plugin));
+		childCommands.register(new CommandTestKill());
 		childCommands.register(new CommandTestSpawn(plugin));
 	}
 

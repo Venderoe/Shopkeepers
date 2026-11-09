@@ -36,6 +36,7 @@ import com.nisovin.shopkeepers.api.shopkeeper.ShopkeeperRegistry;
 import com.nisovin.shopkeepers.api.shopkeeper.ShopkeeperSnapshot;
 import com.nisovin.shopkeepers.api.shopkeeper.TradingRecipe;
 import com.nisovin.shopkeepers.api.shopkeeper.player.PlayerShopType;
+import com.nisovin.shopkeepers.api.shopkeeper.player.PlayerShopkeeper;
 import com.nisovin.shopkeepers.api.shopobjects.ShopObjectType;
 import com.nisovin.shopkeepers.api.shopobjects.virtual.VirtualShopObject;
 import com.nisovin.shopkeepers.api.shopobjects.virtual.VirtualShopObjectType;
@@ -461,7 +462,7 @@ public abstract class AbstractShopkeeper implements Shopkeeper {
 		assert shopType != null;
 
 		// Note: If the shop is forced open, this will mark the shopkeeper as dirty.
-		this.setOpen(shopkeeperData.get(OPEN));
+		this._setOpen(shopkeeperData.get(OPEN));
 		this._setName(shopkeeperData.get(NAME));
 
 		// Optional shop object data:
@@ -585,6 +586,10 @@ public abstract class AbstractShopkeeper implements Shopkeeper {
 	 * is stored by the storage.
 	 */
 	public final void markDirty() {
+		if (Debug.isDebugging(DebugOptions.shopkeeperDirty)) {
+			Log.info(this.getLogPrefix() + "Marked dirty.", new Exception("stacktrace"));
+		}
+
 		dirty = true;
 		// Inform the storage that the shopkeeper is dirty:
 		if (this.isValid()) {
@@ -1097,6 +1102,12 @@ public abstract class AbstractShopkeeper implements Shopkeeper {
 	 * <p>
 	 * This will not actually move the shop object on its own, until the next time it is spawned or
 	 * teleported to its new location.
+	 * <p>
+	 * Moving player shopkeepers to a world different than their shop containers is not prevented
+	 * here, but highly discouraged, because this can affect the performance of handling trades
+	 * (container chunks may need to be dynamically loaded)! Shop owners can usually already not
+	 * move player shopkeepers into a different world via the editor due to the max container
+	 * distance check.
 	 * 
 	 * @param location
 	 *            the new stored location of this shopkeeper, not <code>null</code>
@@ -1106,9 +1117,6 @@ public abstract class AbstractShopkeeper implements Shopkeeper {
 		Validate.notNull(location, "location is null");
 		Validate.isTrue(location.hasWorldName(), "location has no world name");
 
-		// TODO Changing the world is not safe (at least not for all types of shops)! Consider for
-		// example player shops which currently use the shopkeeper's world name to locate their
-		// container.
 		this.location = location.immutable(); // Immutable copy if necessary
 
 		this.updateChunkCoords();
@@ -1129,19 +1137,7 @@ public abstract class AbstractShopkeeper implements Shopkeeper {
 	protected void onShopkeeperMoved() {
 	}
 
-	/**
-	 * Teleports the shopkeeper to a new location.
-	 * <p>
-	 * This updates the shopkeeper's {@link #setLocation(Location, BlockFace) location} and then
-	 * {@link AbstractShopObject#move() moves} the shop object if necessary.
-	 * 
-	 * @param location
-	 *            the new spawn location, not <code>null</code>
-	 * @param attachedBlockFace
-	 *            The block face against which the shopkeeper is attached, or <code>null</code> to
-	 *            not update the block face. This might not be used or stored by the shopkeeper
-	 *            itself, but may be used by the shop object.
-	 */
+	@Override
 	public final void teleport(Location location, @Nullable BlockFace attachedBlockFace) {
 		Validate.notNull(location, "location is null");
 
@@ -1286,6 +1282,11 @@ public abstract class AbstractShopkeeper implements Shopkeeper {
 
 	@Override
 	public void setOpen(boolean open) {
+		this._setOpen(open);
+		this.markDirty();
+	}
+
+	private void _setOpen(boolean open) {
 		// Note: We do not track if the shop was closed via the API or by the shop owner. Also, we
 		// do not know whether the server admin also wants to automatically re-open player shops
 		// restored from a previously saved snapshot. Consequently, the force-open-player-shops
@@ -1300,13 +1301,9 @@ public abstract class AbstractShopkeeper implements Shopkeeper {
 			// Note: We always mark the shopkeeper as dirty here, even if the current open state has
 			// not changed, to ensure that any change to the open state loaded from the shopkeeper's
 			// data is persisted.
+			this.markDirty();
 		}
 
-		this._setOpen(open);
-		this.markDirty();
-	}
-
-	private void _setOpen(boolean open) {
 		// Only call onClosed if the current value actually changed:
 		if (this.open == open) {
 			return;
@@ -1429,12 +1426,24 @@ public abstract class AbstractShopkeeper implements Shopkeeper {
 
 				int shopkeeperId = shopkeeperData.get(ID);
 				String shopkeeperPrefix = getLogPrefix(shopkeeperId);
+				String worldName = shopkeeperData.getOrNullIfMissing(WORLD_NAME);
 
 				boolean migrated = false;
 				int snapshotId = 1;
 				for (SKShopkeeperSnapshot snapshot : snapshots) {
 					String snapshotLogPrefix = getLogPrefix(shopkeeperPrefix, snapshotId, snapshot);
-					migrated |= snapshot.getShopkeeperData().migrate(snapshotLogPrefix);
+					ShopkeeperData snapshotData = snapshot.getShopkeeperData();
+
+					// Snapshots do not store the shopkeeper's world, but the 'container-list'
+					// migration requires it: Temporarily provide the shopkeeper's world during the
+					// migration:
+					snapshotData.set(WORLD_NAME, worldName);
+					try {
+						migrated |= snapshotData.migrate(snapshotLogPrefix);
+					} finally {
+						snapshotData.remove(WORLD_NAME.getName());
+					}
+
 					snapshotId++;
 				}
 				return migrated;
@@ -1683,6 +1692,29 @@ public abstract class AbstractShopkeeper implements Shopkeeper {
 		return UISessionManager.getInstance().requestUI(viewProvider, player, uiState);
 	}
 
+	/**
+	 * Closes any currently open inventory view associated with this shopkeeper for the given
+	 * player.
+	 * <p>
+	 * For {@link PlayerShopkeeper}, this also closes any currently open inventory view for the
+	 * {@link PlayerShopkeeper#getContainer()}.
+	 * 
+	 * @param player
+	 *            the player
+	 * @return <code>true</code> if the player had some inventory open associated with this
+	 *         shopkeeper
+	 */
+	public boolean closeView(Player player) {
+		Validate.notNull(player, "player is null");
+		var view = UISessionManager.getInstance().getUISession(player);
+		if (view != null && view.getShopkeeper() == this) {
+			view.abort();
+			return true;
+		}
+
+		return false;
+	}
+
 	// Shortcuts for the default UI types:
 
 	@Override
@@ -1726,7 +1758,7 @@ public abstract class AbstractShopkeeper implements Shopkeeper {
 	 *            the {@link UIType}, not <code>null</code>
 	 * @param silent
 	 *            <code>true</code> to omit any feedback that might otherwise be sent to the sender
-	 * @return <code>true</code> if the sender can access the UI this shopkeeper
+	 * @return <code>true</code> if the sender can access the specified UI type of this shopkeeper
 	 */
 	public final boolean canAccess(CommandSender sender, UIType uiType, boolean silent) {
 		var viewProvider = this.getViewProvider(uiType);
@@ -1883,8 +1915,9 @@ public abstract class AbstractShopkeeper implements Shopkeeper {
 	 * The ticking of shopkeepers in active chunks may be spread across multiple ticks and might
 	 * therefore not happen for all shopkeepers within the same tick.
 	 * <p>
-	 * If the shopkeeper is marked as {@link #isDirty() dirty}, a
-	 * {@link ShopkeeperStorage#saveDelayed() delayed save} will subsequently be triggered.
+	 * If the shopkeeper is marked as {@link #isDirty() dirty} or {@link #isValid() invalid
+	 * (deleted)} , a {@link ShopkeeperStorage#saveDelayed() delayed save} is subsequently
+	 * triggered.
 	 * <p>
 	 * When overriding this method, consider calling the parent class version of this method.
 	 */

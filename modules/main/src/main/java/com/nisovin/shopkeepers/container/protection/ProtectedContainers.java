@@ -2,42 +2,46 @@ package com.nisovin.shopkeepers.container.protection;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.List;
 import java.util.Map;
 
 import org.bukkit.Bukkit;
-import org.bukkit.Material;
 import org.bukkit.block.Block;
-import org.bukkit.block.BlockFace;
-import org.bukkit.block.data.type.Chest;
-import org.bukkit.block.data.type.Chest.Type;
 import org.bukkit.entity.Player;
 import org.bukkit.event.HandlerList;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import com.nisovin.shopkeepers.SKShopkeepersPlugin;
+import com.nisovin.shopkeepers.api.ShopkeepersPlugin;
 import com.nisovin.shopkeepers.api.internal.util.Unsafe;
 import com.nisovin.shopkeepers.api.shopkeeper.player.PlayerShopkeeper;
+import com.nisovin.shopkeepers.api.shopkeeper.player.members.DefaultPlayerShopAccessLevels;
 import com.nisovin.shopkeepers.config.Settings;
 import com.nisovin.shopkeepers.container.ShopContainers;
 import com.nisovin.shopkeepers.shopkeeper.player.AbstractPlayerShopkeeper;
 import com.nisovin.shopkeepers.util.bukkit.BlockLocation;
-import com.nisovin.shopkeepers.util.bukkit.MutableBlockLocation;
-import com.nisovin.shopkeepers.util.inventory.ItemUtils;
+import com.nisovin.shopkeepers.util.bukkit.BlockUtils;
+import com.nisovin.shopkeepers.util.bukkit.PermissionUtils;
 import com.nisovin.shopkeepers.util.java.Validate;
 
 /**
- * <b>Container protection.</b>
+ * Handles container protection.
  * <p>
  * <b>Protected containers:</b><br>
  * A container directly used by a player shopkeeper is 'directly protected'. Any adjacent chests (N,
  * W, S, E) that form a double chest with a directly protected chest are protected as well.
  * <p>
  * <b>Bypass:</b><br>
- * The owner of a shop corresponding to a protected container and players with the bypass permission
- * are not affected by the listed protections. Also, certain protections can be disabled via config
- * settings.
+ * The owner and members of a shop corresponding to a protected container, and players with the
+ * bypass permission, are not affected by the listed protections. Also, certain protections can be
+ * disabled via config settings.
+ * <p>
+ * <b>Hired shopkeepers:</b><br>
+ * For hired shopkeepers, i.e. shops that retain a hire cost item, the shop members can access the
+ * container, but are otherwise affected by the same protections as other players. I.e. they cannot
+ * destroy or build next to the container of their hired shopkeeper.
  * <p>
  * <b>Protections:</b><br>
  * <ul>
@@ -64,13 +68,10 @@ import com.nisovin.shopkeepers.util.java.Validate;
  */
 public class ProtectedContainers {
 
-	// Does not need to be reset after every use.
-	private static final MutableBlockLocation sharedBlockLocation = new MutableBlockLocation();
-
 	private final SKShopkeepersPlugin plugin;
 	private final ContainerProtectionListener containerProtectionListener = new ContainerProtectionListener(Unsafe.initialized(this));
 	private final InventoryMoveItemListener inventoryMoveItemListener = new InventoryMoveItemListener(Unsafe.initialized(this));
-	private final Map<BlockLocation, List<AbstractPlayerShopkeeper>> protectedContainers = new HashMap<>();
+	private final Map<BlockLocation, List<AbstractPlayerShopkeeper>> protectedContainers = new ConcurrentHashMap<>();
 
 	public ProtectedContainers(SKShopkeepersPlugin plugin) {
 		this.plugin = plugin;
@@ -92,9 +93,10 @@ public class ProtectedContainers {
 		protectedContainers.clear();
 	}
 
+	// Protected containers:
+
 	private BlockLocation getSharedKey(String worldName, int x, int y, int z) {
-		sharedBlockLocation.set(worldName, x, y, z);
-		return sharedBlockLocation;
+		return new BlockLocation(worldName, x, y, z);
 	}
 
 	public void addContainer(BlockLocation location, AbstractPlayerShopkeeper shopkeeper) {
@@ -102,7 +104,8 @@ public class ProtectedContainers {
 		Validate.notNull(shopkeeper, "shopkeeper is null");
 		List<AbstractPlayerShopkeeper> shopkeepers = protectedContainers.computeIfAbsent(
 				location.immutable(),
-				key -> new ArrayList<>(1)
+				// There is usually at most one shopkeeper using the same container:
+				key -> new CopyOnWriteArrayList<>()
 		);
 		assert shopkeepers != null;
 		shopkeepers.add(shopkeeper);
@@ -161,6 +164,7 @@ public class ProtectedContainers {
 		}
 	}
 
+	// Gets the shopkeepers that are directly using the specified container block:
 	public List<? extends PlayerShopkeeper> getShopkeepers(Block block) {
 		return this.getShopkeepers(
 				block.getWorld().getName(),
@@ -170,139 +174,14 @@ public class ProtectedContainers {
 		);
 	}
 
-	//
-
-	// Checks if this exact block is protected:
-	public boolean isContainerDirectlyProtected(
-			String worldName,
-			int x,
-			int y,
-			int z,
-			@Nullable Player player
-	) {
-		List<? extends PlayerShopkeeper> shopkeepers = this._getShopkeepers(worldName, x, y, z);
-		// Check if there are any shopkeepers using this container:
-		if (shopkeepers == null) return false;
-		assert !shopkeepers.isEmpty();
-		if (player != null) {
-			// Check whether the player is affected by the protection:
-			// Note: The bypass permission does not get checked here but needs to be checked
-			// separately.
-			// We always allow shop owners to access their shop container (regardless of other
-			// shopkeepers using the same container):
-			for (PlayerShopkeeper shopkeeper : shopkeepers) {
-				if (shopkeeper.isOwner(player)) return false;
-			}
-		}
-		// There exists a protection for this container and the player doesn't own any shopkeeper
-		// using it:
-		return true;
-	}
-
-	public boolean isContainerDirectlyProtected(Block block, Player player) {
-		return this.isContainerDirectlyProtected(
-				block.getWorld().getName(),
-				block.getX(),
-				block.getY(),
-				block.getZ(),
-				player
-		);
-	}
-
-	//
-
-	// Gets reused by isContainerProtected calls:
-	private final List<AbstractPlayerShopkeeper> tempResultsList = new ArrayList<>();
-
-	/**
-	 * Checks if the given container block is protected.
-	 * <p>
-	 * The block is protected if either:
-	 * <ul>
-	 * <li>The container block is directly used by a shopkeeper.
-	 * <li>The block is a chest that is connected to another chest block (forms a double chest)
-	 * which is directly used by a shopkeeper.
-	 * </ul>
-	 * <p>
-	 * Optionally, this takes shop editing access for the specified player into account.
-	 * 
-	 * @param containerBlock
-	 *            the container block (the block might not actually be a container anymore though)
-	 * @param player
-	 *            the player to check the protection for, or <code>null</code> to check for
-	 *            protection without taking shop editing access into account
-	 * @return <code>true</code> if the block is protected
-	 */
-	public boolean isContainerProtected(Block containerBlock, @Nullable Player player) {
-		Validate.notNull(containerBlock, "containerBlock is null!");
-
-		this.getShopkeepersUsingContainer(containerBlock, tempResultsList);
-		if (tempResultsList.isEmpty()) {
-			// No protection found:
-			return false;
-		}
-
-		// Protection found:
-		boolean result = true;
-		// Check if the player is affected by the protection:
-		if (player != null) {
-			// We always allow shop owners to access their shop container (regardless of other
-			// shopkeepers using the same container):
-			for (AbstractPlayerShopkeeper shopkeeper : tempResultsList) {
-				if (shopkeeper.canEdit(player, true)) {
-					result = false;
-					break;
-				}
-			}
-		}
-		// Cleanup temporary results list:
-		tempResultsList.clear();
-		return result;
-	}
-
-	/**
-	 * Checks if the given block is a protected shop container.
-	 * <p>
-	 * This checks if the specified block actually is a supported type of shop container. This does
-	 * not take any players into account, such as shop owners or players with the bypass permission.
-	 * 
-	 * @param block
-	 *            the block
-	 * @return <code>true</code> if the block is a protected container
-	 */
-	public boolean isProtectedContainer(Block block) {
-		return this.isProtectedContainer(block, null);
-	}
-
-	/**
-	 * Checks if the given block is a protected shop container.
-	 * <p>
-	 * This checks if the specified block actually is a supported type of shop container currently,
-	 * and optionally takes shop editing access for the specified player account.
-	 * 
-	 * @param block
-	 *            the block
-	 * @param player
-	 *            the player to check the protection for, or <code>null</code> to check for
-	 *            protection without taking shop editing access into account
-	 * @return <code>true</code> if the block is a protected container
-	 */
-	public boolean isProtectedContainer(Block block, @Nullable Player player) {
-		Validate.notNull(block, "block is null");
-		if (!ShopContainers.isSupportedContainer(block.getType())) {
-			return false;
-		}
-		return this.isContainerProtected(block, player);
-	}
-
-	// Gets the shopkeepers which use the container at the given location (directly or by a
-	// connected chest):
+	// Gets the shopkeepers that use the container at the given location (directly or by a connected
+	// chest):
 	public List<? extends PlayerShopkeeper> getShopkeepersUsingContainer(Block containerBlock) {
 		return this.getShopkeepersUsingContainer(containerBlock, new ArrayList<>());
 	}
 
-	// Gets the shopkeepers which use the container at the given location (directly or by a
-	// connected chest), and adds them to the provided list:
+	// Gets the shopkeepers that use the container at the given location (directly or by a connected
+	// chest), and adds them to the provided list:
 	private List<? extends AbstractPlayerShopkeeper> getShopkeepersUsingContainer(
 			Block containerBlock,
 			List<AbstractPlayerShopkeeper> results
@@ -317,70 +196,173 @@ public class ProtectedContainers {
 			results.addAll(shopkeepers);
 		}
 
-		// If the block actually is a chest, check for a connected chest:
-		Material chestType = containerBlock.getType();
-		if (ItemUtils.isChest(chestType)) {
-			Chest chestData = (Chest) containerBlock.getBlockData();
-			BlockFace chestFacing = chestData.getFacing();
-			BlockFace connectedFace = getConnectedBlockFace(chestFacing, chestData.getType());
-			if (connectedFace != null) {
-				Block connectedChest = containerBlock.getRelative(connectedFace);
-				// In case of inconsistency of the block data (i.e. connected chest missing or not
-				// mutually connected), we consider the block to be connected (and by that
-				// protected) anyway, because such inconsistencies might also occur during handling
-				// of block placements.
-				// Minecraft determines double chests by these consistency criteria:
-				// Same chest type, same facing, opposite chest type (opposite connected block
-				// faces).
-				shopkeepers = this._getShopkeepers(connectedChest);
-				if (shopkeepers != null) {
-					results.addAll(shopkeepers);
-				}
+		// If the block is a chest, check for a connected chest:
+		@Nullable Block connectedChest = BlockUtils.getConnectedChestBlock(containerBlock);
+		if (connectedChest != null) {
+			// Note: In case of block data inconsistency (i.e. connected chest missing or not
+			// mutually connected), we consider the block to be connected (and by that protected)
+			// anyway, because such inconsistencies might also occur during the handling of block
+			// placements.
+			// Minecraft determines double chests by this consistency criteria: Same chest type,
+			// same facing, opposite chest type (opposite connected block faces).
+			shopkeepers = this._getShopkeepers(connectedChest);
+			if (shopkeepers != null) {
+				results.addAll(shopkeepers);
 			}
 		}
+
 		return results;
 	}
 
-	private static @Nullable BlockFace getConnectedBlockFace(BlockFace chestFacing, Type chestType) {
-		switch (chestFacing) {
-		case NORTH:
-			switch (chestType) {
-			case RIGHT:
-				return BlockFace.WEST;
-			case LEFT:
-				return BlockFace.EAST;
-			default:
-				return null; // Not connected
-			}
-		case EAST:
-			switch (chestType) {
-			case RIGHT:
-				return BlockFace.NORTH;
-			case LEFT:
-				return BlockFace.SOUTH;
-			default:
-				return null; // Not connected
-			}
-		case SOUTH:
-			switch (chestType) {
-			case RIGHT:
-				return BlockFace.EAST;
-			case LEFT:
-				return BlockFace.WEST;
-			default:
-				return null; // Not connected
-			}
-		case WEST:
-			switch (chestType) {
-			case RIGHT:
-				return BlockFace.SOUTH;
-			case LEFT:
-				return BlockFace.NORTH;
-			default:
-				return null; // Not connected
-			}
-		default:
-			return null; // Invalid chest facing
+	// Container protection checks:
+
+	/**
+	 * Checks if the given container block is protected.
+	 * <p>
+	 * The block is protected if either:
+	 * <ul>
+	 * <li>The container block is directly used by a shopkeeper.
+	 * <li>The block is a chest that is connected to another chest block (forms a double chest)
+	 * which is directly used by a shopkeeper.
+	 * </ul>
+	 * <p>
+	 * Optionally, this takes shop container access for the specified player into account.
+	 * 
+	 * @param containerBlock
+	 *            the container block (the block might not actually be a container anymore though)
+	 * @param player
+	 *            the player to check the protection for, or <code>null</code> to check for
+	 *            protection without taking shop container access into account
+	 * @return <code>true</code> if the block is protected
+	 */
+	public boolean isContainerProtected(Block containerBlock, @Nullable Player player) {
+		return !this.checkProtection(containerBlock, player, ContainerProtectionCheck.DEFAULT)
+				.isAllowed();
+	}
+
+	// Does not check whether the given block actually is a supported type of container.
+	private ContainerProtectionResult checkProtection(
+			Block containerBlock,
+			@Nullable Player player,
+			ContainerProtectionCheck check
+	) {
+		Validate.notNull(containerBlock, "containerBlock is null!");
+		Validate.notNull(check, "check is null");
+
+		List<AbstractPlayerShopkeeper> shopkeepers = new ArrayList<>();
+		this.getShopkeepersUsingContainer(containerBlock, shopkeepers);
+		return this.checkProtection(shopkeepers, player, check);
+	}
+
+	// shopkeepers: The shopkeepers that use the container.
+	private ContainerProtectionResult checkProtection(
+			List<? extends AbstractPlayerShopkeeper> shopkeepers,
+			@Nullable Player player,
+			ContainerProtectionCheck check
+	) {
+		if (shopkeepers.isEmpty()) {
+			// No protection found:
+			return ContainerProtectionResult.ALLOWED;
 		}
+
+		// Protection found. Check if the player is affected by it:
+		if (player == null) {
+			return ContainerProtectionResult.PROTECTED;
+		}
+
+		// We always allow shop members to access their shop container (regardless of other
+		// shopkeepers using the same container):
+		boolean containerAccess = false;
+		// For hireable shops, the shop members can access the container, but they are not allowed
+		// to break the container or place blocks next to it (ContainerProtectionCheck.DEFAULT).
+		boolean hireable = false;
+		for (AbstractPlayerShopkeeper shopkeeper : shopkeepers) {
+			if (!containerAccess
+					&& shopkeeper.hasAccessLevel(player, DefaultPlayerShopAccessLevels.CONTAINER())) {
+				containerAccess = true;
+			}
+
+			if (shopkeeper.isHireable()) {
+				hireable = true;
+			}
+		}
+
+		if (containerAccess && (check == ContainerProtectionCheck.ACCESS || !hireable)) {
+			return ContainerProtectionResult.ALLOWED;
+		}
+
+		// The bypass permission bypasses both kinds of protection:
+		if (PermissionUtils.hasPermission(player, ShopkeepersPlugin.BYPASS_PERMISSION)) {
+			return ContainerProtectionResult.ALLOWED;
+		}
+
+		// The player would usually have access to the shop, but fails the protection check because
+		// we are not checking for access-only and the shop is hireable. -> PROTECTED_HIREABLE.
+		return containerAccess
+				? ContainerProtectionResult.PROTECTED_HIREABLE
+				: ContainerProtectionResult.PROTECTED;
+	}
+
+	/**
+	 * Checks if the given block is a protected shop container.
+	 * <p>
+	 * This checks if the specified block actually is a supported type of shop container. This does
+	 * not take any players into account, such as shop owners or players with the bypass permission.
+	 * 
+	 * @param block
+	 *            the block
+	 * @return <code>true</code> if the block is a protected container
+	 */
+	public boolean isProtectedContainer(Block block) {
+		return !this.checkContainerProtection(block, null).isAllowed();
+	}
+
+	/**
+	 * Checks the container protection of the given block.
+	 * <p>
+	 * This checks if the specified block actually is a supported type of shop container currently,
+	 * and optionally takes the shop container access of the specified player into account.
+	 * 
+	 * @param block
+	 *            the block
+	 * @param player
+	 *            the player to check the protection for, or <code>null</code> to check for
+	 *            protection without taking shop container access into account
+	 * @return the protection result, not <code>null</code>
+	 * @see #checkContainerProtection(Block, Player, ContainerProtectionCheck)
+	 */
+	public ContainerProtectionResult checkContainerProtection(
+			Block block,
+			@Nullable Player player
+	) {
+		return this.checkContainerProtection(block, player, ContainerProtectionCheck.DEFAULT);
+	}
+
+	/**
+	 * Checks the container protection of the given block.
+	 * <p>
+	 * This checks if the specified block actually is a supported type of shop container currently,
+	 * and optionally takes the shop container access of the specified player into account.
+	 * 
+	 * @param block
+	 *            the block
+	 * @param player
+	 *            the player to check the protection for, or <code>null</code> to check for
+	 *            protection without taking shop container access into account
+	 * @param check
+	 *            the kind of action to check the protection for
+	 * @return the protection result, not <code>null</code>
+	 */
+	public ContainerProtectionResult checkContainerProtection(
+			Block block,
+			@Nullable Player player,
+			ContainerProtectionCheck check
+	) {
+		Validate.notNull(block, "block is null");
+		if (!ShopContainers.isSupportedContainer(block.getType())) {
+			return ContainerProtectionResult.ALLOWED;
+		}
+
+		return this.checkProtection(block, player, check);
 	}
 }

@@ -17,6 +17,7 @@ import org.checkerframework.checker.nullness.qual.NonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
 import com.nisovin.shopkeepers.api.internal.util.Unsafe;
+import com.nisovin.shopkeepers.util.annotations.ReadOnly;
 
 public final class CollectionUtils {
 
@@ -321,6 +322,14 @@ public final class CollectionUtils {
 		return stream::iterator;
 	}
 
+	public static <T> @Nullable T getFirstOrNull(@ReadOnly List<? extends @Nullable T> list) {
+		return list.isEmpty() ? null : list.get(0);
+	}
+
+	public static <T> @Nullable T getFirstOrNull(@ReadOnly Collection<? extends @Nullable T> collection) {
+		return collection.isEmpty() ? null : collection.iterator().next();
+	}
+
 	@SuppressWarnings("unchecked")
 	public static <T> @Nullable T getFirstOrNull(Stream<? extends @Nullable T> stream) {
 		// TODO Unnecessary cast: CheckerFramework complains when we use a wildcard here.
@@ -328,7 +337,7 @@ public final class CollectionUtils {
 	}
 
 	public static <T> @NonNull T cycleValue(
-			List<@NonNull T> values,
+			List<? extends @NonNull T> values,
 			@NonNull T current,
 			boolean backwards
 	) {
@@ -336,7 +345,7 @@ public final class CollectionUtils {
 	}
 
 	public static <T> @NonNull T cycleValue(
-			List<@NonNull T> values,
+			List<? extends @NonNull T> values,
 			@NonNull T current,
 			boolean backwards,
 			Predicate<? super @NonNull T> predicate
@@ -351,7 +360,7 @@ public final class CollectionUtils {
 	}
 
 	public static <T> @Nullable T cycleValueNullable(
-			List<@NonNull T> values,
+			List<? extends @NonNull T> values,
 			@Nullable T current,
 			boolean backwards
 	) {
@@ -364,7 +373,7 @@ public final class CollectionUtils {
 	}
 
 	public static <T> @Nullable T cycleValueNullable(
-			List<@NonNull T> values,
+			List<? extends @NonNull T> values,
 			@Nullable T current,
 			boolean backwards,
 			Predicate<? super @Nullable T> predicate
@@ -372,7 +381,7 @@ public final class CollectionUtils {
 		return cycleValue(
 				values,
 				true,
-				current,
+				Unsafe.nullableAsNonNull(current),
 				backwards,
 				predicate
 		);
@@ -382,7 +391,7 @@ public final class CollectionUtils {
 	// current==null: nullable has to be true.
 	// Cycled through all values but none got accepted: Returns current value (can be null).
 	public static <T> T cycleValue(
-			List<@NonNull T> values,
+			List<? extends @NonNull T> values,
 			boolean nullable,
 			T current,
 			boolean backwards,

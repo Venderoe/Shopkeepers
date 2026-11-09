@@ -14,6 +14,10 @@ import com.nisovin.shopkeepers.api.shopkeeper.ShopkeeperRegistry;
 import com.nisovin.shopkeepers.api.shopkeeper.offers.BookOffer;
 import com.nisovin.shopkeepers.api.shopkeeper.offers.PriceOffer;
 import com.nisovin.shopkeepers.api.shopkeeper.offers.TradeOffer;
+import com.nisovin.shopkeepers.api.shopkeeper.container.DefaultShopContainerTypes;
+import com.nisovin.shopkeepers.api.shopkeeper.container.ShopContainerTypeRegistry;
+import com.nisovin.shopkeepers.api.shopkeeper.player.members.DefaultPlayerShopAccessLevels;
+import com.nisovin.shopkeepers.api.shopkeeper.player.members.PlayerShopAccessLevelRegistry;
 import com.nisovin.shopkeepers.api.shopobjects.DefaultShopObjectTypes;
 import com.nisovin.shopkeepers.api.shopobjects.ShopObjectTypesRegistry;
 import com.nisovin.shopkeepers.api.storage.ShopkeeperStorage;
@@ -85,6 +89,15 @@ public interface ShopkeepersPlugin extends Plugin {
 	 * The <code>shopkeeper.list.admin</code> permission.
 	 */
 	public static final String LIST_ADMIN_PERMISSION = "shopkeeper.list.admin";
+
+	/**
+	 * The <code>shopkeeper.expiration.own</code> permission.
+	 */
+	public static final String EXPIRATION_OWN_PERMISSION = "shopkeeper.expiration.own";
+	/**
+	 * The <code>shopkeeper.expiration.others</code> permission.
+	 */
+	public static final String EXPIRATION_OTHERS_PERMISSION = "shopkeeper.expiration.others";
 
 	/**
 	 * The <code>shopkeeper.history.own</code> permission.
@@ -293,6 +306,38 @@ public interface ShopkeepersPlugin extends Plugin {
 	 * @return the default UI types
 	 */
 	public DefaultUITypes getDefaultUITypes();
+
+	// PLAYER SHOP ACCESS LEVELS
+
+	/**
+	 * Gets the {@link PlayerShopAccessLevelRegistry}.
+	 * 
+	 * @return the player shop access level registry
+	 */
+	public PlayerShopAccessLevelRegistry<?> getPlayerShopAccessLevelRegistry();
+
+	/**
+	 * Gets the {@link DefaultPlayerShopAccessLevels}.
+	 * 
+	 * @return the default player shop access levels
+	 */
+	public DefaultPlayerShopAccessLevels getDefaultPlayerShopAccessLevels();
+
+	// SHOP CONTAINER TYPES
+
+	/**
+	 * Gets the {@link ShopContainerTypeRegistry}.
+	 * 
+	 * @return the shop container type registry
+	 */
+	public ShopContainerTypeRegistry<?> getShopContainerTypeRegistry();
+
+	/**
+	 * Gets the {@link DefaultShopContainerTypes}.
+	 * 
+	 * @return the default shop container types
+	 */
+	public DefaultShopContainerTypes getDefaultShopContainerTypes();
 
 	// SHOPKEEPER REGISTRY
 

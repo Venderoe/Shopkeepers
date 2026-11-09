@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Spliterators;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
@@ -15,16 +16,19 @@ import com.nisovin.shopkeepers.SKShopkeepersPlugin;
 import com.nisovin.shopkeepers.api.user.User;
 import com.nisovin.shopkeepers.commands.arguments.AmbiguousUserNameHandler;
 import com.nisovin.shopkeepers.commands.lib.util.ObjectMatcher;
+import com.nisovin.shopkeepers.lang.Messages;
 import com.nisovin.shopkeepers.user.SKUser;
 import com.nisovin.shopkeepers.util.bukkit.EntityUtils;
 import com.nisovin.shopkeepers.util.bukkit.TextUtils;
+import com.nisovin.shopkeepers.util.java.StreamUtils;
 import com.nisovin.shopkeepers.util.java.StringUtils;
+import com.nisovin.shopkeepers.util.java.Validate;
 
 public final class UserArgumentUtils {
 
 	/**
 	 * Gets the users currently known to the plugin, e.g. because they are currently online, or are
-	 * currently assigned as shop owners.
+	 * currently assigned as shop owners or shop members.
 	 * <p>
 	 * This does not take offline players into account, since we want to avoid loading all
 	 * (potentially many) player files.
@@ -39,11 +43,23 @@ public final class UserArgumentUtils {
 		// run into an ConcurrentModificationException when we first stream the online users.
 		// - The cache is of limited size. It might not even cover all of the current shop owners.
 		// - The cache may also contain the dummy values such as the empty user.
-		return Stream.concat(
+
+		var playerShops = SKShopkeepersPlugin.getInstance()
+				.getShopkeeperRegistry()
+				.getAllPlayerShopkeepers();
+
+		return Stream.of(
 				EntityUtils.getOnlinePlayersStream().map(SKUser::of),
-				SKShopkeepersPlugin.getInstance().getShopkeeperRegistry().getAllPlayerShopkeepers()
-						.stream().map(x -> x.getOwnerUser()).filter(x -> !x.isOnline())
-		);
+				playerShops.stream().map(x -> x.getOwnerUser()),
+				playerShops.stream()
+						// Optimization: Skip member stream creation for shops without members (most
+						// shops):
+						.filter(x -> !x.getMembers().isEmpty())
+						.flatMap(x -> x.getMembers().stream().map(m -> m.getUser()))
+		)
+				.flatMap(Function.identity())
+				// Return each user at most once:
+				.filter(StreamUtils.distinctByKey(User::getUniqueId));
 	}
 
 	public static @Nullable User findUser(UUID uniqueId) {
@@ -310,6 +326,57 @@ public final class UserArgumentUtils {
 		}
 
 		return false;
+	}
+
+	// Resolves the user by either uuid (precedence if specified) or name.
+	// Returns null if no matching user could be determined, in which case the sender was already
+	// notified.
+	public static @Nullable User resolveUser(
+			CommandSender sender,
+			@Nullable UUID userUniqueId,
+			@Nullable String userName
+	) {
+		Validate.isTrue(userUniqueId != null || userName != null, "Missing user argument!");
+
+		if (userUniqueId != null) {
+			var user = findUser(userUniqueId);
+			if (user == null) {
+				TextUtils.sendMessage(sender, Messages.commandPlayerArgumentInvalid,
+						"argument", userUniqueId.toString()
+				);
+				return null;
+			}
+
+			return user;
+		}
+		assert userName != null;
+
+		// If null: Sender feedback was already handled.
+		return resolveUserByName(sender, userName);
+	}
+
+	// Returns null if no matching user could be determined, in which case the sender was already
+	// notified.
+	public static @Nullable User resolveUserByName(CommandSender sender, String userName) {
+		// Also checks for offline players:
+		var matchingUsers = UserNameMatcher.EXACT.match(userName, true).toList();
+		if (matchingUsers.isEmpty()) {
+			TextUtils.sendMessage(sender, Messages.commandPlayerArgumentInvalid,
+					"argument", userName
+			);
+			return null;
+		}
+
+		if (matchingUsers.size() > 1) {
+			handleAmbiguousUserName(
+					sender,
+					userName,
+					matchingUsers
+			);
+			return null;
+		}
+
+		return matchingUsers.getFirst();
 	}
 
 	private UserArgumentUtils() {

@@ -1,11 +1,16 @@
 package com.nisovin.shopkeepers.util.inventory;
 
+import java.util.List;
 import java.util.Objects;
 import java.util.function.Predicate;
 
+import org.bukkit.block.Block;
+import org.bukkit.block.DoubleChest;
 import org.bukkit.entity.HumanEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.InventoryType;
+import org.bukkit.inventory.BlockInventoryHolder;
+import org.bukkit.inventory.DoubleChestInventory;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryView;
 import org.bukkit.inventory.ItemStack;
@@ -53,6 +58,77 @@ public final class InventoryUtils {
 	}
 
 	/**
+	 * Gets the {@link Block} associated with the given {@link Inventory}.
+	 * <p>
+	 * For {@link DoubleChest} inventories, this returns the left side block.
+	 * 
+	 * @param inventory
+	 *            the inventory, not <code>null</code>
+	 * @return the associated block, or <code>null</code> if the inventory is not associated with
+	 *         any block
+	 */
+	public static @Nullable Block getBlock(Inventory inventory) {
+		var holder = inventory.getHolder();
+		if (holder == null) {
+			return null;
+		}
+
+		// Double chest: Return the left side block.
+		// Note: CraftInventoryDoubleChest has some logic to handle cases of recursive double chest
+		// inventories for either side. We ignore this here, because it is not clear in which cases
+		// this could be encountered. And if it were possible for double chest inventories to nest,
+		// e.g. maybe if due to invalid block data both blocks next to each other are marked as
+		// "left", it is not clear whether this would result in cyclic references.
+		if (holder instanceof DoubleChest doubleChest) {
+			holder = doubleChest.getLeftSide();
+		}
+
+		if (holder instanceof BlockInventoryHolder blockHolder) {
+			return blockHolder.getBlock();
+		}
+
+		return null;
+	}
+
+	/**
+	 * Checks if the given inventories are the same, or overlap in the case of double chest
+	 * inventories.
+	 * <p>
+	 * This compares the inventories themselves, not their contents / items.
+	 * <p>
+	 * For {@link DoubleChestInventory double chest inventories}, this checks if any of their
+	 * {@link DoubleChestInventory#getLeftSide() left} or {@link DoubleChestInventory#getRightSide()
+	 * right} sides are the same. A single side match is sufficient: This returns <code>true</code>
+	 * for two double chest inventories that were retrieved for the two different chest blocks of
+	 * the same double chest, or for a double chest inventory and the inventory of one of its sides.
+	 * 
+	 * @param inventory1
+	 *            the first inventory, not <code>null</code>
+	 * @param inventory2
+	 *            the second inventory, not <code>null</code>
+	 * @return <code>true</code> if the inventories are the same or overlap
+	 */
+	public static boolean isSameInventory(Inventory inventory1, Inventory inventory2) {
+		Validate.notNull(inventory1, "inventory1 is null");
+		Validate.notNull(inventory2, "inventory2 is null");
+		// Note: Double chest inventories cannot be compared via equals, because each inventory
+		// lookup creates a new underlying Minecraft inventory that combines both chest inventories.
+		// We therefore compare the inventories of the individual sides instead.
+		// This also handles nested double chest inventories.
+		if (inventory1 instanceof DoubleChestInventory doubleChestInventory) {
+			return isSameInventory(doubleChestInventory.getLeftSide(), inventory2)
+					|| isSameInventory(doubleChestInventory.getRightSide(), inventory2);
+		}
+
+		if (inventory2 instanceof DoubleChestInventory doubleChestInventory) {
+			return isSameInventory(inventory1, doubleChestInventory.getLeftSide())
+					|| isSameInventory(inventory1, doubleChestInventory.getRightSide());
+		}
+
+		return inventory1.equals(inventory2);
+	}
+
+	/**
 	 * Checks if the given contents contains at least the specified amount of items that are
 	 * accepted by the given {@link Predicate}.
 	 * <p>
@@ -75,11 +151,13 @@ public final class InventoryUtils {
 		Validate.notNull(contents, "contents is null");
 		Validate.notNull(predicate, "predicate is null");
 		if (amount <= 0) return true;
+
 		int remainingAmount = amount;
 		for (ItemStack itemStack : contents) {
 			if (itemStack == null) continue;
 			if (ItemUtils.isEmpty(itemStack)) continue;
 			if (!predicate.test(itemStack)) continue;
+
 			remainingAmount -= itemStack.getAmount();
 			if (remainingAmount <= 0) {
 				return true;
@@ -182,6 +260,106 @@ public final class InventoryUtils {
 		return containsAtLeast(contents, itemStack, 1);
 	}
 
+	/**
+	 * Checks if the given list of contents contains at least the specified amount of items that are
+	 * accepted by the given {@link Predicate}.
+	 * <p>
+	 * The given Predicate is only invoked for {@link ItemUtils#isEmpty(ItemStack) non-empty}
+	 * ItemStacks.
+	 * 
+	 * @param contentsList
+	 *            the list of contents to search through, not <code>null</code>
+	 * @param predicate
+	 *            the predicate, not <code>null</code>
+	 * @param amount
+	 *            the amount of items to check for
+	 * @return <code>true</code> if at least the specified amount of items was found
+	 */
+	public static boolean containsAtLeast(
+			@ReadOnly List<@ReadOnly @Nullable ItemStack @ReadOnly []> contentsList,
+			Predicate<@ReadOnly ? super ItemStack> predicate,
+			int amount
+	) {
+		Validate.notNull(contentsList, "contentsList is null");
+		Validate.notNull(predicate, "predicate is null");
+		if (amount <= 0) return true;
+
+		int remainingAmount = amount;
+		for (var contents : contentsList) {
+			for (ItemStack itemStack : contents) {
+				if (itemStack == null) continue;
+				if (ItemUtils.isEmpty(itemStack)) continue;
+				if (!predicate.test(itemStack)) continue;
+
+				remainingAmount -= itemStack.getAmount();
+				if (remainingAmount <= 0) {
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Checks if the given list of contents contains at least the specified amount of items that
+	 * {@link ItemData#matches(ItemStack) match} the given {@link ItemData}.
+	 * 
+	 * @param contentsList
+	 *            the list of contents to search through, not <code>null</code>
+	 * @param itemData
+	 *            the item data to check for, not <code>null</code>
+	 * @param amount
+	 *            the amount of items to check for
+	 * @return <code>true</code> if at least the specified amount of items was found
+	 */
+	public static boolean containsAtLeast(
+			@ReadOnly List<@ReadOnly @Nullable ItemStack @ReadOnly []> contentsList,
+			ItemData itemData,
+			int amount
+	) {
+		return containsAtLeast(contentsList, ItemUtils.matchingItems(itemData), amount);
+	}
+
+	/**
+	 * Checks if the given list of contents contains at least the specified amount of items that are
+	 * {@link ItemStack#isSimilar(ItemStack) similar} to the given {@link ItemStack}.
+	 * 
+	 * @param contentsList
+	 *            the list of contents to search through, not <code>null</code>
+	 * @param itemStack
+	 *            the item stack to check for, not <code>null</code>
+	 * @param amount
+	 *            the amount of items to check for
+	 * @return <code>true</code> if at least the specified amount of items was found
+	 */
+	public static boolean containsAtLeast(
+			@ReadOnly List<@ReadOnly @Nullable ItemStack @ReadOnly []> contentsList,
+			@ReadOnly ItemStack itemStack,
+			int amount
+	) {
+		return containsAtLeast(contentsList, ItemUtils.similarItems(itemStack), amount);
+	}
+
+	/**
+	 * Checks if the given list of contents contains at least the specified amount of items that are
+	 * {@link UnmodifiableItemStack#isSimilar(ItemStack) similar} to the given {@link ItemStack}.
+	 * 
+	 * @param contentsList
+	 *            the list of contents to search through, not <code>null</code>
+	 * @param itemStack
+	 *            the item stack to check for, not <code>null</code>
+	 * @param amount
+	 *            the amount of items to check for
+	 * @return <code>true</code> if at least the specified amount of items was found
+	 */
+	public static boolean containsAtLeast(
+			@ReadOnly List<@ReadOnly @Nullable ItemStack @ReadOnly []> contentsList,
+			UnmodifiableItemStack itemStack,
+			int amount
+	) {
+		return containsAtLeast(contentsList, ItemUtils.similarItems(itemStack), amount);
+	}
+
 	// ItemStack Iterable
 
 	/**
@@ -207,11 +385,13 @@ public final class InventoryUtils {
 		Validate.notNull(contents, "contents is null");
 		Validate.notNull(predicate, "predicate is null");
 		if (amount <= 0) return true;
+
 		int remainingAmount = amount;
 		for (ItemStack itemStack : contents) {
 			if (itemStack == null) continue;
 			if (ItemUtils.isEmpty(itemStack)) continue;
 			if (!predicate.test(itemStack)) continue;
+
 			remainingAmount -= itemStack.getAmount();
 			if (remainingAmount <= 0) {
 				return true;
@@ -329,7 +509,8 @@ public final class InventoryUtils {
 	 */
 	public static int addItems(
 			@ReadOnly @Nullable ItemStack @ReadWrite [] contents,
-			@ReadOnly ItemStack item, int amount
+			@ReadOnly ItemStack item,
+			int amount
 	) {
 		return addItems(contents, UnmodifiableItemStack.ofNonNull(item), amount);
 	}
@@ -449,6 +630,114 @@ public final class InventoryUtils {
 
 		// Not all items did fit into the inventory:
 		return remaining;
+	}
+
+	/**
+	 * Adds the specified amount of items of the given {@link UnmodifiableItemStack} to the given
+	 * list of contents.
+	 * <p>
+	 * This first tries to add the items to contents that already contain a
+	 * {@link UnmodifiableItemStack#isSimilar(ItemStack) similar} item, and then to the remaining
+	 * contents. Within each contents, {@link #addItems(ItemStack[], UnmodifiableItemStack, int)} is
+	 * used.
+	 * 
+	 * @param contentsList
+	 *            the list of contents, not <code>null</code>
+	 * @param item
+	 *            the item to add, not <code>null</code>
+	 * @param amount
+	 *            the amount to add
+	 * @return the amount of items that could not be added, <code>0</code> on complete success
+	 */
+	public static int addItems(
+			@ReadOnly List<@ReadOnly @Nullable ItemStack @ReadWrite []> contentsList,
+			UnmodifiableItemStack item,
+			int amount
+	) {
+		Validate.notNull(contentsList, "contentsList is null");
+		Validate.notNull(item, "item is null");
+		Validate.isTrue(amount >= 0, "amount is negative");
+		if (amount == 0) return 0;
+
+		int remaining = amount;
+		// First pass: Contents that already contain a similar item. Second pass: The rest.
+		for (int pass = 0; pass < 2; pass++) {
+			for (var contents : contentsList) {
+				if (remaining <= 0) return 0;
+
+				// Skip if either:
+				// - containsSimilar and pass==1 (already handled in pass 0)
+				// - !containsSimilar and pass==0 (skipped in pass 0)
+				boolean containsSimilar = containsAtLeast(contents, item, 1);
+				if (containsSimilar ? (pass != 0) : (pass == 0)) {
+					continue;
+				}
+
+				remaining = addItems(contents, item, remaining);
+			}
+		}
+		return remaining;
+	}
+
+	/**
+	 * Adds the given {@link ItemStack} to the given list of contents.
+	 * <p>
+	 * See {@link #addItems(List, UnmodifiableItemStack, int)} for details on how the items are
+	 * distributed across the contents.
+	 * 
+	 * @param contentsList
+	 *            the list of contents, not <code>null</code>
+	 * @param itemStack
+	 *            the item stack to add, not <code>null</code>
+	 * @return the amount of items that could not be added, <code>0</code> on complete success
+	 */
+	public static int addItems(
+			@ReadOnly List<@ReadOnly @Nullable ItemStack @ReadWrite []> contentsList,
+			@ReadOnly ItemStack itemStack
+	) {
+		return addItems(contentsList, itemStack, ItemUtils.getItemStackAmount(itemStack));
+	}
+
+	/**
+	 * Adds the specified amount of items of the given {@link ItemStack} to the given list of
+	 * contents.
+	 * <p>
+	 * See {@link #addItems(List, UnmodifiableItemStack, int)} for details on how the items are
+	 * distributed across the contents.
+	 * 
+	 * @param contentsList
+	 *            the list of contents, not <code>null</code>
+	 * @param item
+	 *            the item to add, not <code>null</code>
+	 * @param amount
+	 *            the amount to add
+	 * @return the amount of items that could not be added, <code>0</code> on complete success
+	 */
+	public static int addItems(
+			@ReadOnly List<@ReadOnly @Nullable ItemStack @ReadWrite []> contentsList,
+			@ReadOnly ItemStack item,
+			int amount
+	) {
+		return addItems(contentsList, UnmodifiableItemStack.ofNonNull(item), amount);
+	}
+
+	/**
+	 * Adds the given {@link UnmodifiableItemStack} to the given list of contents.
+	 * <p>
+	 * See {@link #addItems(List, UnmodifiableItemStack, int)} for details on how the items are
+	 * distributed across the contents.
+	 * 
+	 * @param contentsList
+	 *            the list of contents, not <code>null</code>
+	 * @param itemStack
+	 *            the item stack to add, not <code>null</code>
+	 * @return the amount of items that could not be added, <code>0</code> on complete success
+	 */
+	public static int addItems(
+			@ReadOnly List<@ReadOnly @Nullable ItemStack @ReadWrite []> contentsList,
+			UnmodifiableItemStack itemStack
+	) {
+		return addItems(contentsList, itemStack, ItemUtils.getItemStackAmount(itemStack));
 	}
 
 	/**
@@ -574,6 +863,103 @@ public final class InventoryUtils {
 
 		if (removeAll) return 0;
 		return remaining;
+	}
+
+	/**
+	 * Removes the specified amount of items accepted by the given {@link Predicate} from the given
+	 * list of contents.
+	 * <p>
+	 * Within each contents array, {@link #removeItems(ItemStack[], Predicate, int)} is used.
+	 * 
+	 * @param contentsList
+	 *            the list of contents, not <code>null</code>
+	 * @param itemMatcher
+	 *            the item matcher, not <code>null</code>
+	 * @param amount
+	 *            the amount of items to remove
+	 * @return the amount of items that could not be removed, or <code>0</code> if all items were
+	 *         removed
+	 */
+	public static int removeItems(
+			@ReadOnly List<@ReadOnly @Nullable ItemStack @ReadWrite []> contentsList,
+			Predicate<@ReadOnly ? super ItemStack> itemMatcher,
+			int amount
+	) {
+		Validate.notNull(contentsList, "contentsList is null");
+		Validate.notNull(itemMatcher, "itemMatcher is null");
+		Validate.isTrue(amount >= 0, "amount is negative");
+		if (amount == 0) return 0;
+
+		int remaining = amount;
+		for (var contents : contentsList) {
+			if (remaining <= 0) break;
+			remaining = removeItems(contents, itemMatcher, remaining);
+		}
+
+		return remaining;
+	}
+
+	/**
+	 * Removes the given {@link UnmodifiableItemStack} from the given list of contents.
+	 * <p>
+	 * Within each contents array, {@link #removeItems(ItemStack[], Predicate, int)} is used.
+	 * 
+	 * @param contentsList
+	 *            the list of contents, not <code>null</code>
+	 * @param itemStack
+	 *            the item stack to remove, not <code>null</code>
+	 * @return the amount of items that could not be removed, or <code>0</code> if all items were
+	 *         removed
+	 */
+	public static int removeItems(
+			@ReadOnly List<@ReadOnly @Nullable ItemStack @ReadWrite []> contentsList,
+			UnmodifiableItemStack itemStack
+	) {
+		Validate.notNull(itemStack, "itemStack is null");
+		return removeItems(contentsList, ItemUtils.similarItems(itemStack), itemStack.getAmount());
+	}
+
+	/**
+	 * Removes the specified amount of items that {@link ItemData#matches(ItemStack) match} the
+	 * given {@link ItemData} from the given list of contents.
+	 * <p>
+	 * Within each contents array, {@link #removeItems(ItemStack[], Predicate, int)} is used.
+	 * 
+	 * @param contentsList
+	 *            the list of contents, not <code>null</code>
+	 * @param itemData
+	 *            the item data to match, not <code>null</code>
+	 * @param amount
+	 *            the amount of matching items to remove
+	 * @return the amount of items that could not be removed, or <code>0</code> if all items were
+	 *         removed
+	 */
+	public static int removeItems(
+			@ReadOnly List<@ReadOnly @Nullable ItemStack @ReadWrite []> contentsList,
+			ItemData itemData,
+			int amount
+	) {
+		return removeItems(contentsList, ItemUtils.matchingItems(itemData), amount);
+	}
+
+	/**
+	 * Removes the given {@link ItemStack} from the given list of contents.
+	 * <p>
+	 * Within each contents array, {@link #removeItems(ItemStack[], Predicate, int)} is used.
+	 * 
+	 * @param contentsList
+	 *            the list of contents, not <code>null</code>
+	 * @param itemStack
+	 *            the item stack to remove, not <code>null</code>
+	 * @return the amount of items that could not be removed, or <code>0</code> if all items were
+	 *         removed
+	 */
+	public static int removeItems(
+			@ReadOnly List<@ReadOnly @Nullable ItemStack @ReadWrite []> contentsList,
+			@ReadOnly ItemStack itemStack
+	) {
+		Validate.notNull(itemStack, "itemStack is null");
+		return removeItems(contentsList, ItemUtils.similarItems(itemStack), itemStack.getAmount());
 	}
 
 	public static void setStorageContents(

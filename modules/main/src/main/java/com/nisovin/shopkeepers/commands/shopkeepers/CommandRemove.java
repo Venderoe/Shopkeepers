@@ -8,6 +8,7 @@ import org.bukkit.entity.Player;
 import com.nisovin.shopkeepers.api.ShopkeepersPlugin;
 import com.nisovin.shopkeepers.api.events.PlayerDeleteShopkeeperEvent;
 import com.nisovin.shopkeepers.api.shopkeeper.player.PlayerShopkeeper;
+import com.nisovin.shopkeepers.api.shopkeeper.player.members.DefaultPlayerShopAccessLevels;
 import com.nisovin.shopkeepers.api.ui.DefaultUITypes;
 import com.nisovin.shopkeepers.commands.Confirmations;
 import com.nisovin.shopkeepers.commands.arguments.ShopkeeperArgument;
@@ -16,9 +17,10 @@ import com.nisovin.shopkeepers.commands.arguments.TargetShopkeeperFallback;
 import com.nisovin.shopkeepers.commands.lib.Command;
 import com.nisovin.shopkeepers.commands.lib.CommandException;
 import com.nisovin.shopkeepers.commands.lib.CommandInput;
+import com.nisovin.shopkeepers.commands.lib.NoPermissionException;
 import com.nisovin.shopkeepers.commands.lib.context.CommandContextView;
 import com.nisovin.shopkeepers.commands.util.ShopkeeperArgumentUtils.TargetShopkeeperFilter;
-import com.nisovin.shopkeepers.event.ShopkeeperEventHelper;
+import com.nisovin.shopkeepers.events.ShopkeeperEventHelper;
 import com.nisovin.shopkeepers.lang.Messages;
 import com.nisovin.shopkeepers.shopkeeper.AbstractShopkeeper;
 import com.nisovin.shopkeepers.util.bukkit.PermissionUtils;
@@ -67,27 +69,24 @@ class CommandRemove extends Command {
 
 		AbstractShopkeeper shopkeeper = context.get(ARGUMENT_SHOPKEEPER);
 
-		// Check that the sender can edit this shop:
-		if (!shopkeeper.canEdit(sender, false)) {
+		if (!this.checkCanDelete(sender, shopkeeper)) {
 			return;
-		}
-
-		// Command permission checks:
-		if (shopkeeper instanceof PlayerShopkeeper) {
-			PlayerShopkeeper playerShop = (PlayerShopkeeper) shopkeeper;
-			if (senderPlayer != null && playerShop.isOwner(senderPlayer)) {
-				this.checkPermission(sender, ShopkeepersPlugin.REMOVE_OWN_PERMISSION);
-			} else {
-				this.checkPermission(sender, ShopkeepersPlugin.REMOVE_OTHERS_PERMISSION);
-			}
-		} else {
-			this.checkPermission(sender, ShopkeepersPlugin.REMOVE_ADMIN_PERMISSION);
 		}
 
 		confirmations.awaitConfirmation(sender, () -> {
 			if (!shopkeeper.isValid()) {
 				// The shopkeeper has been removed in the meantime.
 				TextUtils.sendMessage(sender, Messages.shopAlreadyRemoved);
+				return;
+			}
+
+			// Re-check can-delete after the deferred confirmation:
+			try {
+				if (!this.checkCanDelete(sender, shopkeeper)) {
+					return;
+				}
+			} catch (NoPermissionException e) {
+				TextUtils.sendMessage(sender, e.getMessageText());
 				return;
 			}
 
@@ -112,5 +111,44 @@ class CommandRemove extends Command {
 
 		TextUtils.sendMessage(sender, Messages.confirmRemoveShop);
 		TextUtils.sendMessage(sender, Messages.confirmationRequired);
+	}
+
+	// Returns false if the player cannot delete this shopkeeper and was already notified, e.g.
+	// because they have no access.
+	// Throws a NoPermissionException if the player has no access and was not notified yet. This can
+	// be handled like any other CommandException (command failure, debug logging, etc.).
+	// Returns true if the player can delete this shopkeeper.
+	private boolean checkCanDelete(CommandSender sender, AbstractShopkeeper shopkeeper)
+			throws NoPermissionException {
+		// Check that the sender can edit this shop:
+		// Note: More fine-grained player shop access levels and permissions are checked below.
+		if (!shopkeeper.canEdit(sender, false)) {
+			return false;
+		}
+
+		// Shops that can be hired are only deletable with the bypass permission:
+		// These shops are instead usually reverted to their for-hire state, e.g. when deleted via
+		// the editor.
+		if (shopkeeper instanceof PlayerShopkeeper playerShop
+				&& playerShop.isHireable()
+				&& !PermissionUtils.hasPermission(sender, ShopkeepersPlugin.BYPASS_PERMISSION)) {
+			TextUtils.sendMessage(sender, Messages.cannotDeleteHiredShop);
+			return false;
+		}
+
+		// Command permission checks:
+		if (shopkeeper instanceof PlayerShopkeeper playerShop) {
+			Player senderPlayer = ObjectUtils.castOrNull(sender, Player.class);
+			if (senderPlayer != null
+					&& playerShop.hasAccessLevel(senderPlayer, DefaultPlayerShopAccessLevels.FULL())) {
+				this.checkPermission(sender, ShopkeepersPlugin.REMOVE_OWN_PERMISSION);
+			} else {
+				this.checkPermission(sender, ShopkeepersPlugin.REMOVE_OTHERS_PERMISSION);
+			}
+		} else {
+			this.checkPermission(sender, ShopkeepersPlugin.REMOVE_ADMIN_PERMISSION);
+		}
+
+		return true;
 	}
 }

@@ -1,11 +1,13 @@
 package com.nisovin.shopkeepers.container;
 
+import org.bukkit.Bukkit;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
 import org.bukkit.block.BlockState;
 import org.bukkit.block.Container;
 import org.bukkit.inventory.Inventory;
 
+import com.nisovin.shopkeepers.util.bukkit.BlockUtils;
 import com.nisovin.shopkeepers.util.inventory.ItemUtils;
 import com.nisovin.shopkeepers.util.java.Validate;
 
@@ -15,6 +17,19 @@ import com.nisovin.shopkeepers.util.java.Validate;
 public class ShopContainers {
 
 	private ShopContainers() {
+	}
+
+	public static boolean isAccessible(Block block) {
+		if (!block.getWorld().isChunkLoaded(block.getX() >> 4, block.getZ() >> 4)
+				|| !Bukkit.isOwnedByCurrentRegion(block)) {
+			return false;
+		}
+
+		Block connectedChest = BlockUtils.getConnectedChestBlock(block);
+		return connectedChest == null
+				|| (connectedChest.getWorld().isChunkLoaded(
+						connectedChest.getX() >> 4, connectedChest.getZ() >> 4)
+						&& Bukkit.isOwnedByCurrentRegion(connectedChest));
 	}
 
 	/**

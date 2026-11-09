@@ -5,6 +5,15 @@
 Shopkeepers [![Build Status](https://github.com/Shopkeepers/Shopkeepers/actions/workflows/build.yml/badge.svg?branch=master)](https://github.com/Shopkeepers/Shopkeepers/actions/workflows/build.yml)
 ===========
 
+This fork targets Folia/Paper **26.3** and requires **Java 25**. It incorporates upstream
+`Shopkeepers/Shopkeepers` through `2def75f8` (2.28.2-SNAPSHOT). Towny integration and other
+Minecraft version modules are excluded.
+
+Build the plugin with `./gradlew :shopkeepers-dist:assemble` (Windows: `gradlew.bat`).
+The plugin jar is written to `build/Shopkeepers-2.28.2-SNAPSHOT.jar`.
+Player-shop trades require all loaded backing containers to belong to the current Folia region;
+trades involving containers in another region or unloaded chunks are declined.
+
 Shopkeepers is a Bukkit/[Spigot](https://www.spigotmc.org/wiki/spigot/) plugin that allows you to set up custom villager shopkeepers that sell exactly what you want them to sell and for what price. 
 You can set up admin shops, which have infinite supply, and you can also set up player shops, which pull supply from a container.
 

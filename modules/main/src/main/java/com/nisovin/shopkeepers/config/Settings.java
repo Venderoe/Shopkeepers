@@ -1,5 +1,6 @@
 package com.nisovin.shopkeepers.config;
 
+import java.time.Duration;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -38,10 +39,12 @@ import com.nisovin.shopkeepers.items.ItemUpdates;
 import com.nisovin.shopkeepers.lang.Messages;
 import com.nisovin.shopkeepers.playershops.MaxShopsPermission;
 import com.nisovin.shopkeepers.playershops.PlayerShopsLimit;
+import com.nisovin.shopkeepers.playershops.expiration.PlayerShopsExpiration;
 import com.nisovin.shopkeepers.shopcreation.ShopCreationItem;
 import com.nisovin.shopkeepers.shopkeeper.TradingRecipeDraft;
 import com.nisovin.shopkeepers.shopobjects.living.types.MagmaCubeShop;
 import com.nisovin.shopkeepers.shopobjects.living.types.SlimeShop;
+import com.nisovin.shopkeepers.shopobjects.living.types.SulfurCubeShop;
 import com.nisovin.shopkeepers.tradelog.TradeLogStorageType;
 import com.nisovin.shopkeepers.util.bukkit.ConfigUtils;
 import com.nisovin.shopkeepers.util.bukkit.EntityUtils;
@@ -59,9 +62,9 @@ public class Settings extends Config {
 	/*
 	 * General Settings
 	 */
-	public static int configVersion = 10;
-	// Initial value: Lowest supported Minecraft data version: MC 1.21.5
-	public static int dataVersion = 4325;
+	public static int configVersion = 12;
+	// Initial value: Minecraft 26.3 data version.
+	public static int dataVersion = 5023;
 	public static boolean debug = false;
 	// See DebugOptions for all available options.
 	public static List<String> debugOptions = new ArrayList<>(0);
@@ -85,6 +88,7 @@ public class Settings extends Config {
 	public static boolean bypassSpawnBlocking = true;
 	public static boolean deleteUnspawnableShopkeepers = false;
 	public static boolean checkShopInteractionResult = false;
+	public static boolean enableLeftClickInteraction = false;
 
 	public static boolean enableWorldGuardRestrictions = false;
 	public static boolean requireWorldGuardAllowShopFlag = false;
@@ -121,6 +125,16 @@ public class Settings extends Config {
 	public static boolean deleteShopkeeperOnBreakContainer = false;
 
 	public static int playerShopkeeperInactiveDays = 0;
+
+	/*
+	 * Player Shop Expiration
+	 */
+	public static int playerShopExpirationDays = 0;
+	public static int hiredPlayerShopExpirationDays = 0;
+
+	public static boolean notifyShopMembersAboutExpiration = true;
+	// In minutes. Default: 7d, 3d, 1d, 12h, 1h, 10m
+	public static String playerShopExpirationNotificationThresholds = "10080,4320,1440,720,60,10";
 
 	/*
 	 * Shop (Object) Types
@@ -214,7 +228,8 @@ public class Settings extends Config {
 					"CAMEL_HUSK", // MC 1.21.11
 					"NAUTILUS", // MC 1.21.11
 					"PARCHED", // MC 1.21.11
-					"ZOMBIE_NAUTILUS" // MC 1.21.11
+					"ZOMBIE_NAUTILUS", // MC 1.21.11
+					"SULFUR_CUBE" // MC 26.2
 			), String::compareTo)
 	);
 
@@ -237,6 +252,7 @@ public class Settings extends Config {
 
 	public static int slimeMaxSize = 5;
 	public static int magmaCubeMaxSize = 5;
+	public static int sulfurCubeMaxSize = 5;
 
 	public static boolean silenceShopEntities = true;
 
@@ -293,6 +309,7 @@ public class Settings extends Config {
 	public static ItemData bookEmptyItem2 = new ItemData(Material.BARRIER);
 
 	public static int maxTradesPages = 5;
+	public static int maxPlayerShopTradesPages = 5;
 
 	public static ItemData previousPageItem = new ItemData(Material.WRITABLE_BOOK);
 	public static ItemData nextPageItem = new ItemData(Material.WRITABLE_BOOK);
@@ -314,8 +331,15 @@ public class Settings extends Config {
 	public static boolean enableMovingOfPlayerShops = true;
 	public static ItemData moveItem = new ItemData(Material.ENDER_PEARL);
 
-	public static boolean enableContainerOptionOnPlayerShop = true;
+	public static int maxMembersPerShop = 9;
+	public static boolean allowMembersWithFullAccess = true;
+	public static ItemData membersItem = new ItemData(Material.PLAYER_HEAD);
+	public static ItemData addMemberItem = new ItemData(Material.NAME_TAG);
+
+	public static int maxContainersPerPlayerShop = 9;
 	public static ItemData containerItem = new ItemData(Material.CHEST);
+	public static ItemData addContainerItem = new ItemData(Material.LIME_STAINED_GLASS_PANE);
+	public static boolean enablePlayerShopOpenContainer = true;
 
 	public static ItemData tradeNotificationsItem = new ItemData(Material.BELL);
 	public static ItemData deleteItem = new ItemData(Material.BONE);
@@ -353,7 +377,7 @@ public class Settings extends Config {
 	 * Trading
 	 */
 	public static boolean preventTradingWithOwnShop = true;
-	public static boolean preventTradingWhileOwnerIsOnline = false;
+	public static boolean preventTradingWhileMemberIsOnline = false;
 	public static boolean useStrictItemComparison = false;
 
 	public static boolean incrementVillagerStatistics = false;
@@ -379,8 +403,8 @@ public class Settings extends Config {
 	public static boolean notifyPlayersAboutTrades = false;
 	public static SoundEffect tradeNotificationSound = SoundEffect.EMPTY;
 
-	public static boolean notifyShopOwnersAboutTrades = true;
-	public static SoundEffect shopOwnerTradeNotificationSound = new SoundEffect(Sound.ENTITY_EXPERIENCE_ORB_PICKUP)
+	public static boolean notifyShopMembersAboutTrades = true;
+	public static SoundEffect shopMemberTradeNotificationSound = new SoundEffect(Sound.ENTITY_EXPERIENCE_ORB_PICKUP)
 			.withVolume(0.25f);
 
 	/*
@@ -430,8 +454,8 @@ public class Settings extends Config {
 		public static ItemData shopClosedButtonItem = Unsafe.uncheckedNull();
 		public static ItemData nameButtonItem = Unsafe.uncheckedNull();
 		public static ItemData moveButtonItem = Unsafe.uncheckedNull();
-		public static ItemData containerButtonItem = Unsafe.uncheckedNull();
 		public static ItemData deleteButtonItem = Unsafe.uncheckedNull();
+		public static ItemData restoreForHireButtonItem = Unsafe.uncheckedNull();
 		public static ItemData hireButtonItem = Unsafe.uncheckedNull();
 
 		public static ItemData deleteVillagerButtonItem = Unsafe.uncheckedNull();
@@ -442,6 +466,10 @@ public class Settings extends Config {
 
 		// Sorted in descending order:
 		public static final List<MaxShopsPermission> maxShopsPermissions = new ArrayList<>();
+
+		// Player shop expiration notification threshold durations, sorted in ascending order:
+		public static final List<Duration> playerShopExpirationNotificationThresholds
+				= new ArrayList<>();
 
 		public static final Set<EntityType> enabledLivingShops = new LinkedHashSet<>();
 
@@ -643,15 +671,16 @@ public class Settings extends Config {
 					Messages.buttonMove,
 					Messages.buttonMoveLore
 			);
-			containerButtonItem = new ItemData(
-					containerItem,
-					Messages.buttonContainer,
-					Messages.buttonContainerLore
-			);
 			deleteButtonItem = new ItemData(
 					deleteItem,
 					Messages.buttonDelete,
 					Messages.buttonDeleteLore
+			);
+			// Uses the same item as the delete button, but a different name and lore:
+			restoreForHireButtonItem = new ItemData(
+					deleteItem,
+					Messages.buttonRestoreForHire,
+					Messages.buttonRestoreForHireLore
 			);
 			hireButtonItem = new ItemData(
 					hireItem,
@@ -692,6 +721,13 @@ public class Settings extends Config {
 				Log.warning(INSTANCE.getLogPrefix()
 						+ "Ignoring invalid entry in 'max-shops-perm-options': "
 						+ invalidPermissionOption);
+			});
+
+			// Player shop expiration notification thresholds:
+			PlayerShopsExpiration.updateExpirationNotificationThresholds(invalidThreshold -> {
+				Log.warning(INSTANCE.getLogPrefix()
+						+ "Ignoring invalid entry in 'player-shop-expiration-notification-thresholds': "
+						+ invalidThreshold);
 			});
 
 			// Enabled living shop types:
@@ -779,6 +815,9 @@ public class Settings extends Config {
 
 		// Refresh async settings cache:
 		AsyncSettings.refresh();
+
+		// The configured player shop expiration durations might have changed:
+		PlayerShopsExpiration.onSettingsChanged();
 	}
 
 	///// PERSISTENCE
@@ -927,6 +966,11 @@ public class Settings extends Config {
 					+ MagmaCubeShop.MIN_SIZE + " and " + MagmaCubeShop.MAX_SIZE + ".");
 			magmaCubeMaxSize = MathUtils.clamp(magmaCubeMaxSize, MagmaCubeShop.MIN_SIZE, MagmaCubeShop.MAX_SIZE);
 		}
+		if (sulfurCubeMaxSize < SulfurCubeShop.MIN_SIZE || sulfurCubeMaxSize > SulfurCubeShop.MAX_SIZE) {
+			Log.warning(this.getLogPrefix() + "'sulfur-cube-max-size' must be between "
+					+ SulfurCubeShop.MIN_SIZE + " and " + SulfurCubeShop.MAX_SIZE + ".");
+			sulfurCubeMaxSize = MathUtils.clamp(sulfurCubeMaxSize, SulfurCubeShop.MIN_SIZE, SulfurCubeShop.MAX_SIZE);
+		}
 
 		// Certain items cannot be of type AIR:
 		if (shopCreationItem.getType() == Material.AIR) {
@@ -962,6 +1006,37 @@ public class Settings extends Config {
 			Log.warning(this.getLogPrefix() + "'max-trades-pages' can not be greater than 10!");
 			maxTradesPages = 10;
 		}
+
+		if (maxPlayerShopTradesPages < 1) {
+			Log.warning(this.getLogPrefix()
+					+ "'max-player-shop-trades-pages' can not be less than 1!");
+			maxPlayerShopTradesPages = 1;
+		} else if (maxPlayerShopTradesPages > 10) {
+			Log.warning(this.getLogPrefix()
+					+ "'max-player-shop-trades-pages' can not be greater than 10!");
+			maxPlayerShopTradesPages = 10;
+		}
+
+		if (maxMembersPerShop < 0) {
+			Log.warning(this.getLogPrefix() + "'max-members-per-shop' can not be less than 0!");
+			maxMembersPerShop = 0;
+		} else if (maxMembersPerShop > 36) {
+			// See PlayerShopMembersEditorView.MAX_INVENTORY_SIZE
+			Log.warning(this.getLogPrefix() + "'max-members-per-shop' can not be larger than 36!");
+			maxMembersPerShop = 36;
+		}
+
+		if (maxContainersPerPlayerShop < 1) {
+			Log.warning(this.getLogPrefix()
+					+ "'max-containers-per-player-shop' can not be less than 1!");
+			maxContainersPerPlayerShop = 1;
+		} else if (maxContainersPerPlayerShop > 36) {
+			// See PlayerShopContainersEditorView.MAX_INVENTORY_SIZE
+			Log.warning(this.getLogPrefix()
+					+ "'max-containers-per-player-shop' can not be larger than 36!");
+			maxContainersPerPlayerShop = 36;
+		}
+
 		if (taxRate < 0) {
 			Log.warning(this.getLogPrefix() + "'tax-rate' can not be less than 0!");
 			taxRate = 0;

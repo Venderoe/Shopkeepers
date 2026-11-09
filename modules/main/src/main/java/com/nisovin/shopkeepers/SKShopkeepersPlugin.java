@@ -27,6 +27,7 @@ import com.nisovin.shopkeepers.commands.Commands;
 import com.nisovin.shopkeepers.compat.Compat;
 import com.nisovin.shopkeepers.compat.MC_1_21_11;
 import com.nisovin.shopkeepers.compat.MC_1_21_9;
+import com.nisovin.shopkeepers.compat.MC_26_3;
 import com.nisovin.shopkeepers.compat.ServerAssumptionsTest;
 import com.nisovin.shopkeepers.config.Settings;
 import com.nisovin.shopkeepers.config.lib.ConfigLoadException;
@@ -44,6 +45,7 @@ import com.nisovin.shopkeepers.lang.Messages;
 import com.nisovin.shopkeepers.metrics.PluginMetrics;
 import com.nisovin.shopkeepers.moving.ShopkeeperMoving;
 import com.nisovin.shopkeepers.naming.ShopkeeperNaming;
+import com.nisovin.shopkeepers.paper.PaperCompat;
 import com.nisovin.shopkeepers.playershops.PlayerShops;
 import com.nisovin.shopkeepers.shopcreation.ShopkeeperCreation;
 import com.nisovin.shopkeepers.shopkeeper.AbstractShopType;
@@ -51,6 +53,10 @@ import com.nisovin.shopkeepers.shopkeeper.AbstractShopkeeper;
 import com.nisovin.shopkeepers.shopkeeper.SKDefaultShopTypes;
 import com.nisovin.shopkeepers.shopkeeper.SKShopTypesRegistry;
 import com.nisovin.shopkeepers.shopkeeper.migration.ShopkeeperDataMigrator;
+import com.nisovin.shopkeepers.container.SKDefaultShopContainerTypes;
+import com.nisovin.shopkeepers.container.SKShopContainerTypeRegistry;
+import com.nisovin.shopkeepers.shopkeeper.player.members.SKDefaultPlayerShopAccessLevels;
+import com.nisovin.shopkeepers.shopkeeper.player.members.SKPlayerShopAccessLevelRegistry;
 import com.nisovin.shopkeepers.shopkeeper.registry.SKShopkeeperRegistry;
 import com.nisovin.shopkeepers.shopobjects.SKDefaultShopObjectTypes;
 import com.nisovin.shopkeepers.shopobjects.SKShopObjectTypesRegistry;
@@ -116,6 +122,14 @@ public class SKShopkeepersPlugin extends JavaPlugin implements InternalShopkeepe
 	private final SKUISystem uiSystem = new SKUISystem(Unsafe.initialized(this));
 	private final SKUIRegistry uiRegistry = new SKUIRegistry();
 	private final SKDefaultUITypes defaultUITypes = new SKDefaultUITypes();
+
+	// Player shop access levels:
+	private final SKPlayerShopAccessLevelRegistry playerShopAccessLevelRegistry = new SKPlayerShopAccessLevelRegistry();
+	private final SKDefaultPlayerShopAccessLevels defaultPlayerShopAccessLevels = new SKDefaultPlayerShopAccessLevels();
+
+	// Shop container types:
+	private final SKShopContainerTypeRegistry shopContainerTypeRegistry = new SKShopContainerTypeRegistry();
+	private final SKDefaultShopContainerTypes defaultShopContainerTypes = new SKDefaultShopContainerTypes();
 
 	// Shopkeeper registry:
 	private final SKShopkeeperRegistry shopkeeperRegistry = new SKShopkeeperRegistry(
@@ -187,6 +201,10 @@ public class SKShopkeepersPlugin extends JavaPlugin implements InternalShopkeepe
 			if (className.startsWith("com.nisovin.shopkeepers.compat.")) {
 				return false;
 			}
+			// Skip Paper-specific classes:
+			if (className.startsWith("com.nisovin.shopkeepers.paper.")) {
+				return false;
+			}
 			if (SKIP_PRELOADING_CLASSES.contains(className)) {
 				return false;
 			}
@@ -217,6 +235,8 @@ public class SKShopkeepersPlugin extends JavaPlugin implements InternalShopkeepe
 	private void registerDefaults() {
 		Log.info("Registering defaults.");
 		defaultShopObjectTypes.onRegisterDefaults();
+		playerShopAccessLevelRegistry.registerAll(defaultPlayerShopAccessLevels.getAllAccessLevels());
+		shopContainerTypeRegistry.registerAll(defaultShopContainerTypes.getAllContainerTypes());
 		uiRegistry.registerAll(defaultUITypes.getAllUITypes());
 		shopTypesRegistry.registerAll(defaultShopTypes.getAll());
 		shopObjectTypesRegistry.registerAll(defaultShopObjectTypes.getAll());
@@ -242,6 +262,13 @@ public class SKShopkeepersPlugin extends JavaPlugin implements InternalShopkeepe
 		// Try to load the compat module: Returns false if neither a compatible compat provider nor
 		// the fallback provider could be loaded.
 		this.incompatibleServer = !Compat.load(this);
+		if (this.incompatibleServer) {
+			return;
+		}
+
+		// Try to load the Paper compat module: Returns false if compat module is required but could
+		// not be loaded.
+		this.incompatibleServer = !PaperCompat.load();
 		if (this.incompatibleServer) {
 			return;
 		}
@@ -324,9 +351,15 @@ public class SKShopkeepersPlugin extends JavaPlugin implements InternalShopkeepe
 		// Example: MC_1_20_6.init();
 		MC_1_21_9.init();
 		MC_1_21_11.init();
+		MC_26_3.init();
 
 		// Compat module:
 		Compat.getProvider().onEnable();
+
+		// Paper compat module:
+		if (PaperCompat.hasProvider()) {
+			PaperCompat.getProvider().onEnable();
+		}
 
 		// Inform about Spigot exclusive features:
 		if (SpigotFeatures.isSpigotAvailable()) {
@@ -528,6 +561,8 @@ public class SKShopkeepersPlugin extends JavaPlugin implements InternalShopkeepe
 		// Clear all types of registers:
 		shopTypesRegistry.clearAll();
 		shopObjectTypesRegistry.clearAll();
+		playerShopAccessLevelRegistry.clearAll();
+		shopContainerTypeRegistry.clearAll();
 		uiRegistry.clearAll();
 
 		forcingEntityTeleporter.onDisable();
@@ -538,6 +573,11 @@ public class SKShopkeepersPlugin extends JavaPlugin implements InternalShopkeepe
 
 		// Event debugger:
 		eventDebugger.onDisable();
+
+		// Paper compat module:
+		if (PaperCompat.hasProvider()) {
+			PaperCompat.getProvider().onDisable();
+		}
 
 		// Compat module:
 		if (Compat.hasProvider()) {
@@ -659,6 +699,30 @@ public class SKShopkeepersPlugin extends JavaPlugin implements InternalShopkeepe
 	@Override
 	public SKDefaultUITypes getDefaultUITypes() {
 		return defaultUITypes;
+	}
+
+	// PLAYER SHOP ACCESS LEVELS
+
+	@Override
+	public SKPlayerShopAccessLevelRegistry getPlayerShopAccessLevelRegistry() {
+		return playerShopAccessLevelRegistry;
+	}
+
+	@Override
+	public SKDefaultPlayerShopAccessLevels getDefaultPlayerShopAccessLevels() {
+		return defaultPlayerShopAccessLevels;
+	}
+
+	// SHOP CONTAINER TYPES
+
+	@Override
+	public SKShopContainerTypeRegistry getShopContainerTypeRegistry() {
+		return shopContainerTypeRegistry;
+	}
+
+	@Override
+	public SKDefaultShopContainerTypes getDefaultShopContainerTypes() {
+		return defaultShopContainerTypes;
 	}
 
 	// PROTECTED CONTAINERS

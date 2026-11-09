@@ -37,11 +37,11 @@ public class Messages extends Config {
 	public static String shopTypeTrading = c("Trading shop");
 	public static String shopTypeBook = c("Book shop");
 
-	public static String shopTypeDescAdminRegular = c("has unlimited stock");
-	public static String shopTypeDescSelling = c("sells items to players");
-	public static String shopTypeDescBuying = c("buys items from players");
-	public static String shopTypeDescTrading = c("trades items with players");
-	public static String shopTypeDescBook = c("sells book copies");
+	public static Text shopTypeDescAdminRegular = Text.parse("has unlimited stock");
+	public static Text shopTypeDescSelling = Text.parse("sells items to players");
+	public static Text shopTypeDescBuying = Text.parse("buys items from players");
+	public static Text shopTypeDescTrading = Text.parse("trades items with players");
+	public static Text shopTypeDescBook = Text.parse("sells book copies");
 
 	public static String shopObjectTypeEntity = c("{type}");
 	public static String shopObjectTypeSign = c("sign");
@@ -100,10 +100,15 @@ public class Messages extends Config {
 			"Lets you move",
 			"your shopkeeper"
 	));
-	public static String buttonContainer = c("&aView shop inventory");
-	public static List<String> buttonContainerLore = c(Arrays.asList(
-			"Lets you view the inventory",
-			"your shopkeeper is using"
+	public static String buttonMembers = c("&aShop members");
+	public static List<String> buttonMembersLore = c(Arrays.asList(
+			"Manage the shop members.",
+			"Currently: &e{memberCount}"
+	));
+	public static String buttonContainers = c("&aShop containers");
+	public static List<String> buttonContainersLore = c(Arrays.asList(
+			"Manage the shop containers.",
+			"Currently: &e{containerCount}"
 	));
 	public static String buttonTradeNotifications = c("&aTrade Notifications");
 	public static List<String> buttonTradeNotificationsLore = c(Arrays.asList(
@@ -115,6 +120,11 @@ public class Messages extends Config {
 	public static List<String> buttonDeleteLore = c(Arrays.asList(
 			"Closes and removes",
 			"this shopkeeper"
+	));
+	public static String buttonRestoreForHire = c("&4Put up for hire");
+	public static List<String> buttonRestoreForHireLore = c(Arrays.asList(
+			"Removes this shop from you",
+			"and offers it for hire again"
 	));
 
 	public static String buttonSignVariant = c("&aChoose sign variant");
@@ -268,6 +278,11 @@ public class Messages extends Config {
 			"Cycles the magma cube's size.",
 			"Current size: &e{size}"
 	));
+	public static String buttonSulfurCubeSize = c("&aChoose sulfur cube size");
+	public static List<String> buttonSulfurCubeSizeLore = c(Arrays.asList(
+			"Cycles the sulfur cube's size.",
+			"Current size: &e{size}"
+	));
 	public static String buttonSnowmanPumpkinHead = c("&aToggle pumpkin head");
 	public static List<String> buttonSnowmanPumpkinHeadLore = c(Arrays.asList(
 			"Toggles the snowman's",
@@ -418,6 +433,103 @@ public class Messages extends Config {
 	public static String equipmentSlotBody = c("&aBody");
 	public static String equipmentSlotSaddle = c("&aSaddle");
 
+	public static String shopMembersEditorTitle = c("Shop Members");
+
+	public static String shopMemberTitle = c("{memberName}");
+	public static List<String> shopMemberLore = c(Arrays.asList(
+			"Access level: &e{accessLevel}",
+			"{accessLevelDescription}",
+			"Left/Right click to change",
+			"the access level.",
+			"Shift click to remove."
+	));
+
+	public static String buttonAddShopMember = c("&aAdd new member");
+	public static List<String> buttonAddShopMemberLore = c(Arrays.asList());
+
+	public static Text enterNewShopMember = Text.parse(
+			"&aPlease enter the name or id of the player you want to give access to the shop.\n"
+					+ "&a  You can configure their access level afterwards inside the editor.\n"
+					+ "&a  Enter an exclamation mark (!) to abort."
+	);
+	public static Text cannotAddShopMemberAlreadyOwner = Text.parse("&7Player &e{player_name}&7 is already the shop owner!");
+	public static Text cannotAddShopMemberAlreadyMember = Text.parse("&7Player &e{player_name}&7 is already a shop member!");
+	public static Text shopMemberAdded = Text.parse("&aShop member added: &e{member_name}");
+
+	public static Text cannotEditShopMemberSelf = Text.parse("&7You cannot edit your own shop membership!");
+	public static Text cannotEditShopMemberNoLongerAMember = Text.parse("&7The player is no longer a shop member!");
+	public static Text yourShopMembershipHasChanged = Text.parse("&7Your shop membership has changed!");
+
+	public static String confirmationUiRemoveShopMemberTitle = c("&cRemove shop member?");
+	public static List<String> confirmationUiRemoveShopMemberLore = c(Arrays.asList(
+			"This will revoke {member_name}'s",
+			"access to this shop!"
+	));
+	public static Text shopMemberRemoved = Text.parse("&aShop member removed: &e{member_name}");
+
+	public static String playerShopAccessLevelNone = c("No access");
+	public static String playerShopAccessLevelContainer = c("Container");
+	public static String playerShopAccessLevelEdit = c("Edit");
+	public static String playerShopAccessLevelFull = c("Full access");
+
+	public static String playerShopAccessLevelDescriptionNone = c("No access.");
+	public static String playerShopAccessLevelDescriptionContainer = c("Can access shop containers.");
+	public static String playerShopAccessLevelDescriptionEdit = c("Can access shop containers\nand edit the shop.");
+	public static String playerShopAccessLevelDescriptionFull = c("Full editing rights,\nincluding the shop members\nand deleting the shop.");
+
+	public static String shopContainerTypeStock = c("Stock");
+	public static String shopContainerTypeEarnings = c("Earnings");
+	public static String shopContainerTypeStockAndEarnings = c("Stock and Earnings");
+
+	public static String shopContainerTypeDescriptionStock = c("The shop draws its stock\nfrom this container.");
+	public static String shopContainerTypeDescriptionEarnings = c("The shop deposits its\nearnings into this container.");
+	public static String shopContainerTypeDescriptionStockAndEarnings = c("The shop draws its stock from\nand deposits its earnings\ninto this container.");
+
+	public static String shopContainersEditorTitle = c("Shop Containers");
+
+	public static String shopContainerTitle = c("&aShop Container");
+	public static List<String> shopContainerNoneLore = c(Arrays.asList(
+			"&4No container available."
+	));
+	public static List<String> shopContainerLore = c(Arrays.asList(
+			"Location: &e{container_world}, {container_x}, {container_y}, {container_z}",
+			"{container_state}",
+			"Type: &e{container_type}",
+			"{container_type_description}",
+			"{container_action_change_type}",
+			"{container_action_open}",
+			"{container_action_remove}"
+	));
+	public static List<String> singleShopContainerLore = c(Arrays.asList(
+			"Location: &e{container_world}, {container_x}, {container_y}, {container_z}",
+			"{container_state}",
+			"{container_action_open}"
+	));
+
+	public static String shopContainerActionChangeType = c("Left/Right click to change type.");
+	public static String shopContainerActionOpen = c("Shift right click to open.");
+	public static String singleShopContainerActionOpen = c("Click to open inventory.");
+	public static String shopContainerActionRemove = c("Shift left click to remove.");
+
+	public static String shopContainerStateMissing = c("State: &4Missing");
+	public static String shopContainerStateDoubleChest = c("State: &eDouble chest");
+
+	public static String buttonAddShopContainer = c("&aAdd container");
+	public static List<String> buttonAddShopContainerLore = c(Arrays.asList());
+
+	public static Text shopContainerMissing = Text.parse("&7The container is currently missing.");
+	public static Text clickShopContainerToAdd = Text.parse("&aPlease right-click a container to add it to the shop.\n"
+			+ "  &aLeft-click to abort.");
+	public static Text containerSelectionAborted = Text.parse("&7Container selection aborted.");
+	public static Text shopContainerAdded = Text.parse("&aContainer added: &e{container_x}, {container_y}, {container_z}");
+	public static Text shopContainerRemoved = Text.parse("&aContainer removed: &e{container_x}, {container_y}, {container_z}");
+
+	public static String confirmationUiRemoveShopContainerTitle = c("&cRemove container?");
+	public static List<String> confirmationUiRemoveShopContainerLore = c(Arrays.asList(
+			"You are about to remove the",
+			"container at &e({container_x}, {container_y}, {container_z})."
+	));
+
 	public static String adminSignShopLine1 = c("&2[SHOP]");
 	public static String adminSignShopLine2 = c("&7{shopName}");
 	public static String adminSignShopLine3 = c("");
@@ -431,7 +543,7 @@ public class Messages extends Config {
 	public static String forHireTitle = c("For Hire");
 	public static String buttonHire = c("&aHire");
 	public static List<String> buttonHireLore = c(Arrays.asList(
-			"Buy this shopkeeper"
+			"Hire this shopkeeper"
 	));
 
 	public static String tradingTitlePrefix = c("&2");
@@ -481,9 +593,10 @@ public class Messages extends Config {
 	public static Text targetShopIsNoAdminShop = Text.parse("&7The targeted shopkeeper is no admin shopkeeper.");
 	public static Text targetShopIsNoPlayerShop = Text.parse("&7The targeted shopkeeper is no player shopkeeper.");
 	public static Text unusedContainer = Text.parse("&7No shopkeeper is using this container.");
-	public static Text notOwner = Text.parse("&7You are not the owner of this shopkeeper.");
+	public static Text missingAccessLevel = Text.parse("&7You do not have the required access level!");
 	// Placeholders: {owner} -> new owners name
 	public static Text ownerSet = Text.parse("&aThe new owner is now &e{owner}");
+	public static Text shopReceived = Text.parse("&aYou are now the owner of the shop &e{shopName}&r&aat &e({location})&a.");
 	public static Text shopCreationItemsGiven = Text.parse("&aPlayer &e{player}&a has received &e{amount}&a shop creation item(s)!");
 	public static Text shopCreationItemsReceived = Text.parse("&aYou have received &e{amount}&a shop creation item(s)!");
 	public static Text unknownCurrency = Text.parse("&cUnknown currency: '&e{currency}&c'");
@@ -506,6 +619,7 @@ public class Messages extends Config {
 	public static Text zombieVillagerCuringDisabled = Text.parse("&7Curing of zombie villagers is disabled.");
 	public static Text mustHoldHireItem = Text.parse("&7You have to hold the required hire item in your hand.");
 	public static Text setForHire = Text.parse("&aThis shopkeeper can now be hired.");
+	public static Text setNotForHire = Text.parse("&aThis shopkeeper is no longer for hire.");
 	public static Text hired = Text.parse("&aYou have hired this shopkeeper!");
 	public static Text missingHirePerm = Text.parse("&7You do not have the permission to hire shopkeepers.");
 	public static Text cannotHire = Text.parse("&7You cannot afford to hire this shopkeeper.");
@@ -516,11 +630,11 @@ public class Messages extends Config {
 	public static Text missingTradePerm = Text.parse("&7You do not have the permission to trade with this shop.");
 	public static Text missingCustomTradePerm = Text.parse("&7You do not have the permission to trade with this shop.");
 	public static Text shopCurrentlyClosed = Text.parse("&7This shop is currently closed. Check again later!");
+	public static Text cannotTradeShopForHire = Text.parse("&7This shop cannot be traded with because it is for hire.");
 	public static Text cannotTradeNoOffers = Text.parse("&7This shop currently has no offers. Check again later!");
-	public static String noOffersOpenEditorDescription = c("&eYou can edit this shop by right clicking it while sneaking.");
+	public static Text noOffersOpenEditorDescription = Text.parse("&eYou can edit this shop by right clicking it while sneaking.");
 	public static Text cannotTradeWithOwnShop = Text.parse("&7You cannot trade with your own shop.");
-	public static Text cannotTradeWhileOwnerOnline = Text.parse("&7You cannot trade while the owner of this shop ('&e{owner}&7') is online.");
-	public static Text cannotTradeWithShopMissingContainer = Text.parse("&7You cannot trade with this shop, because its container is missing.");
+	public static Text cannotTradeWhileMemberOnline = Text.parse("&7You cannot trade while a member of this shop ('&e{member}&7') is online.");
 	public static Text cannotTradeUnexpectedTrade = Text.parse("&7Trade aborted: The traded items do not match what this shopkeeper expected.");
 	public static Text cannotTradeItemsNotStrictlyMatching = Text.parse("&7Trade aborted: The offered items do not exactly match the required items.");
 	public static Text cannotTradeInsufficientStorageSpace = Text.parse("&7Trade aborted: This shop does not have enough storage space.");
@@ -563,15 +677,15 @@ public class Messages extends Config {
 
 	public static Text shopkeeperCreated = Text.parse("&aShopkeeper created: &6{type} &7({description})\n{setupDesc}");
 
-	public static String shopSetupDescSelling = c("&e  Add items you want to sell to your container, then\n"
+	public static Text shopSetupDescSelling = Text.parse("&e  Add items you want to sell to your container, then\n"
 			+ "&e  right-click the shop while sneaking to modify costs.");
-	public static String shopSetupDescBuying = c("&e  Add one of each item you want to buy to your container,\n"
+	public static Text shopSetupDescBuying = Text.parse("&e  Add one of each item you want to buy to your container,\n"
 			+ "&e  then right-click the shop while sneaking to modify costs.");
-	public static String shopSetupDescTrading = c("&e  Add items you want to sell to your container, then\n"
+	public static Text shopSetupDescTrading = Text.parse("&e  Add items you want to sell to your container, then\n"
 			+ "&e  right-click the shop while sneaking to modify costs.");
-	public static String shopSetupDescBook = c("&e  Add written and blank books to your container, then\n"
+	public static Text shopSetupDescBook = Text.parse("&e  Add written and blank books to your container, then\n"
 			+ "&e  right-click the shop while sneaking to modify costs.");
-	public static String shopSetupDescAdminRegular = c("&e  Right-click the shop while sneaking to modify trades.");
+	public static Text shopSetupDescAdminRegular = Text.parse("&e  Right-click the shop while sneaking to modify trades.");
 
 	public static String tradeSetupDescHeader = c("&6{shopType}");
 	public static List<String> tradeSetupDescAdminRegular = c(Arrays.asList(
@@ -785,9 +899,9 @@ public class Messages extends Config {
 	));
 
 	public static String villagerInventoryTitle = c("Villager inventory (copy)");
-	public static String setVillagerXp = c("&aSet the villager's XP to &e{xp}");
-	public static String noVillagerTradesChanged = c("&aNo trades have been changed.");
-	public static String villagerTradesChanged = c("&e{changedTrades}&a trades have been changed.");
+	public static Text setVillagerXp = Text.parse("&aSet the villager's XP to &e{xp}");
+	public static Text noVillagerTradesChanged = Text.parse("&aNo trades have been changed.");
+	public static Text villagerTradesChanged = Text.parse("&e{changedTrades}&a trades have been changed.");
 
 	public static Text typeNewVillagerName = Text.parse("&aPlease type the villager's name into the chat.\n"
 			+ "  &aType a dash (-) to remove the name.");
@@ -805,15 +919,38 @@ public class Messages extends Config {
 	public static Text listAdminShopsHeader = Text.parse("&9There are &e{shopsCount} &9admin shops: &e(Page {page} of {maxPage})");
 	public static Text listAllShopsHeader = Text.parse("&9There are &e{shopsCount} &9shops in total: &e(Page {page} of {maxPage})");
 	public static Text listPlayerShopsHeader = Text.parse("&9Player '&e{player}&9' has &e{shopsCount} &9shops: &e(Page {page} of {maxPage})");
-	public static Text listShopsEntry = Text.parse("  &e{shopId}) &7{shopName}&r&8at &7({location})&8, type: &7{shopType}&8, object: &7{objectType}");
+	public static Text listShopsEntry = Text.parse("  &e{shopId}) &7{shopName}&r&8at &7({location})&8, type: &7{shopType}&8, object: &7{objectType}{expiration}");
+	public static Text listShopsEntryExpiration = Text.parse("&8, expiration: {timeLeft}");
+
+	public static Text listExpiringShopsHeader = Text.parse("&9Player '&e{player}&9' has &e{shopsCount} &9shops that are about to expire:");
+	public static Text noExpiringShops = Text.parse("&9Player '&e{player}&9' has no shops that are about to expire.");
+
+	public static Text shopExpirationNotificationHeader = Text.parse("&eSome of your shops are about to expire:");
+	public static Text shopExpirationNotificationEntry = Text.parse("  &e{shopId}) &7{shopName}&r&8at &7({location})&8, expires in {timeLeft}");
+	public static Text shopExpirationNotificationMore = Text.parse("  &7And &e{count}&7 more shop(s).");
+	public static Text shopExpirationNotificationHint = Text.parse("&7Use &e/shopkeeper expiration&7 to list your expiring shops.");
+	public static Text shopExpired = Text.parse("&7Your shop {shopName}&7at &7({location})&7 has expired!");
+	public static Text shopExpirationInfo = Text.parse("&7This shop will expire in {timeLeft}&7.");
 
 	public static Text shopRemoved = Text.parse("&aThe shopkeeper has been removed.");
 	public static Text shopAlreadyRemoved = Text.parse("&7The shopkeeper has already been removed.");
 	public static Text shopNoLongerExists = Text.parse("&7The shopkeeper no longer exists.");
 	public static Text shopRemovalCancelled = Text.parse("&cA plugin has prevented the removal of the shopkeeper.");
 
+	public static Text cannotDeleteHiredShop = Text.parse("&7You cannot delete a hired shop.");
+	public static Text cannotMoveHiredShop = Text.parse("&7You cannot move a hired shop.");
+	public static Text shopRestoredForHire = Text.parse("&aThis shop can now be hired again.");
+	public static Text shopAlreadyForHire = Text.parse("&7This shop is already offered for hire.");
+	public static Text setNotForHireToDeleteHint = Text.parse("&7To delete this shop: Use &e/shopkeeper setNotForHire&7 first.");
+	public static Text cannotInteractShopContainer = Text.parse("&7You cannot interact with this shop container.");
+	public static Text cannotBreakShopContainer = Text.parse("&7You cannot break the container of another player's shop.");
+	public static Text cannotBreakHiredShopContainer = Text.parse("&7You cannot break the container of a hired shop.");
+	public static Text cannotPlaceBlockNearShopContainer = Text.parse("&7You cannot place this block next to the container of another player's shop.");
+	public static Text cannotPlaceBlockNearHiredShopContainer = Text.parse("&7You cannot place this block next to the container of a hired shop.");
+
 	public static Text shopsAlreadyRemoved = Text.parse("&e{shopsCount}&7 of the shops have already been removed.");
 	public static Text shopRemovalsCancelled = Text.parse("&cPlugins have prevented the removal of &e{shopsCount}&c of the shops.");
+	public static Text hiredShopsNotRemoved = Text.parse("&e{shopsCount}&7 hired shops were not removed.");
 	public static Text adminShopsRemoved = Text.parse("&e{shopsCount} &aadmin shops have been removed.");
 	public static Text shopsOfPlayerRemoved = Text.parse("&e{shopsCount} &ashops of player '&e{player}&a' have been removed.");
 	public static Text playerShopsRemoved = Text.parse("&e{shopsCount} &aplayer shops have been removed.");
@@ -841,6 +978,13 @@ public class Messages extends Config {
 			"remove this shop!"
 	));
 
+	public static String confirmationUiRestoreShopForHireTitle = c("&cReally set this shop for hire?");
+	public static List<String> confirmationUiRestoreShopForHireConfirmLore = c(Arrays.asList(
+			"This will remove the shop",
+			"from you and offer it",
+			"for hire again!"
+	));
+
 	public static String confirmationUiDeleteVillagerTitle = c("&cReally delete this villager?");
 	public static List<String> confirmationUiDeleteVillagerConfirmLore = c(Arrays.asList(
 			"This will irrevocably",
@@ -855,6 +999,8 @@ public class Messages extends Config {
 			"current action."
 	));
 	public static Text confirmationUiAborted = Text.parse("&7Confirmation aborted.");
+
+	public static Text textInputAborted = Text.parse("&7Text input aborted.");
 
 	public static Text snapshotListHeader = Text.parse("&9Shop &e{shop_id} &9has &e{snapshotsCount} &9snapshots: &e(Page {page} of {maxPage})");
 	public static Text snapshotListEntry = Text.parse("  &e{id}) &2{name}&8 (&7{timestamp}&8)");
@@ -947,7 +1093,9 @@ public class Messages extends Config {
 	public static Text commandDescriptionTeleport = Text.parse("Teleports to a shop.");
 	public static Text commandDescriptionSettradeperm = Text.parse("Sets, removes (-) or displays (?) the trading permission.");
 	public static Text commandDescriptionSettradedcommand = Text.parse("Sets, removes (-) or displays (?) the traded command of the held item.");
-	public static Text commandDescriptionSetforhire = Text.parse("Sets one of your shops for sale.");
+	public static Text commandDescriptionSetforhire = Text.parse("Offers one of your shops for hire.");
+	public static Text commandDescriptionSetnotforhire = Text.parse("Stops offering one of your shops for hire.");
+	public static Text commandDescriptionExpiration = Text.parse("Lists the shops of a player that are about to expire.");
 	public static Text commandDescriptionSnapshotList = Text.parse("Lists the snapshots of a shop.");
 	public static Text commandDescriptionSnapshotCreate = Text.parse("Creates a new shop snapshot.");
 	public static Text commandDescriptionSnapshotRemove = Text.parse("Removes a specific or all snapshots of a shop.");

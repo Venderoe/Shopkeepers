@@ -20,16 +20,13 @@ dependencies {
 	// Bukkit as one of their own dependencies anyway. If they require a more specific version or
 	// variant of Bukkit, our transitive Bukkit dependency would likely conflict with that and would
 	// then need to be manually ignored.
-	// We depend on the Spigot API here, instead of Bukkit, even though we only actually require
-	// Bukkit, because the Spigot repository does not contain Bukkit for certain versions. And we
-	// also run into issues when we try to build Bukkit/Spigot as part of the Jitpack build.
-	compileOnly libs.spigot.api
+	compileOnly libs.paper.api
 	// For some reason, this needs to use the 'api' configuration in order for Eclipse to properly
 	// resolve our own JDK EEAs. compileOnly and compileOnlyApi are not sufficient, neither here nor
 	// in the dependent projects.
 	api project(':shopkeepers-external-annotations')
 
-	testImplementation libs.spigot.api
+	testImplementation libs.paper.api
 	testImplementation libs.junit
 }
 

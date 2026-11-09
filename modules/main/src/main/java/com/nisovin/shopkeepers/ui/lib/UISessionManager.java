@@ -3,7 +3,7 @@ package com.nisovin.shopkeepers.ui.lib;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -68,7 +68,7 @@ public final class UISessionManager {
 	private final UIListener uiListener;
 
 	// Player id -> View
-	private final Map<UUID, View> uiSessions = new HashMap<>();
+	private final Map<UUID, View> uiSessions = new ConcurrentHashMap<>();
 	private final Collection<? extends View> uiSessionsView
 			= Collections.unmodifiableCollection(uiSessions.values());
 
@@ -275,6 +275,14 @@ public final class UISessionManager {
 		if (!uiSession.isValid()) return;
 
 		Player player = uiSession.getPlayer();
+		if (!Bukkit.isOwnedByCurrentRegion(player)) {
+			uiSession.deactivateUI();
+			SchedulerUtils.runEntityTaskOrOmit(plugin, player, () -> this.abort(uiSession));
+			return;
+		}
+
+		if (this.getUISession(player) != uiSession) return;
+
 		this.endUISession(player, null);
 		player.closeInventory();
 	}
@@ -282,7 +290,6 @@ public final class UISessionManager {
 	public void abortUISessions() {
 		// Copy to prevent concurrent modifications:
 		new ArrayList<>(this.getUISessions()).forEach(View::abort);
-		assert uiSessions.isEmpty();
 	}
 
 	public void abortUISessionsForContext(Object contextObject) {

@@ -1,9 +1,322 @@
 # Changelog
 Date format: (YYYY-MM-DD)  
 
-## v2.26.2 (TBA)
-### Supported MC versions: 26.1.2, 1.21.11, 1.21.10, 1.21.8, 1.21.7, 1.21.6, 1.21.5
+## v2.28.2 (TBA)
+### Supported MC versions (Folia fork): 26.3
 
+* Merge upstream master through `2def75f8`, including the 2.28.1 fixes.
+* Retain Folia schedulers and per-thread inventory event handling.
+* Schedule shop expiration, member UI updates, and notifications on their owning regions.
+* Guard container inventory access across Folia regions and unloaded chunks.
+* Remove other Minecraft version modules and retain the removal of Towny integration.
+
+
+## v2.28.1 (2026-09-26)
+### Supported MC versions: 26.3, 26.2, 26.1.2, 1.21.11, 1.21.10, 1.21.8, 1.21.7, 1.21.6, 1.21.5
+
+* Permission: The `shopkeeper.*` permission was missing some permissions.
+  * `shopkeeper.notify.trades`
+  * `shopkeeper.setcurrency`
+  * `shopkeeper.teleport`
+  * `shopkeeper.teleport.others`
+  * `shopkeeper.settradedcommand`
+  * `shopkeeper.snapshot`
+  * `shopkeeper.edit-villagers`
+  * `shopkeeper.edit-wandering-traders`
+  * `shopkeeper.create`
+  * `shopkeeper.hanging-sign`
+* Fix: An item duplication issue with player shops introduced in v2.28.0, caused by not properly resetting the trading state on failed trade attempts.
+  * Also added a safeguard that aborts subsequent trade attempts if the previous trade was not properly ended.
+* Fix: An item duplication issue with player shops introduced in v2.28.0 if multiple shop containers share the same inventory, e.g. the two chests of a double chest.
+* Fix: The container list migration failed for shopkeepers with snapshots, because the snapshot data does not contain the shopkeeper's world.
+* Fix: The container list migration did not remove the legacy container data (`chestx`, `chesty`, `chestz`).
+* Fix: A currency item duplication issue in player shops when the shop owner edits the offers while another player is currently trading.
+  * Trades are now aborted if the trading recipe price no longer matches the price of the corresponding offer.
+  * We also immediately close any open trading views now when the trade offers have been edited, so trading players don't see outdated trades.
+* Fix: An item duplication issue with the shop creation item and the naming item, caused by removing used items one tick later.
+* Fix: Hiring non-shopkeeper villagers only charged a part of the costs if the hire items in the player's hand did not cover the full costs.
+* Fix: Shopkeeper mobs could drop items and experience if they were killed directly, e.g. by other plugins. For example, a fox shopkeeper would always drop the item in its mouth. We now clear the drops of dying shopkeeper entities.
+* Fix: The trades were not updated (e.g. their out-of-stock visualization) when a shift-click trade was aborted, for example due to insufficient shop container storage space.
+* Debug: Add debug command `/shopkeeper testKill`, which kills the targeted entity by setting its health to zero. Unlike the vanilla kill command, this bypasses damage events and can be used to test the death behavior of shopkeeper entities.
+* Assumptions:
+  * Remove the no longer relevant sections about our `SKUnmodifiableItemStack`: The implementation has changed in v2.22.0.
+  * Add section regarding `Inventory#equals`.
+* API: Add `PlayerShopkeeper#getStockContainerContents` and `PlayerShopkeeper#getEarningsContainerContents`.
+
+## v2.28.0 (2026-09-20)
+### Supported MC versions: 26.3, 26.2, 26.1.2, 1.21.11, 1.21.10, 1.21.8, 1.21.7, 1.21.6, 1.21.5
+
+* Update for MC 26.3.
+  * Add poplar sign and hanging sign shops.
+* Add support for multiple shop containers: Shop owners can now link additional containers to their player shops.
+  * Config:
+    * Add `max-containers-per-player-shop` (default: `9`). Set it to `1` to keep the previous single-container behavior.
+    * Add `add-container-item` (default: `minecraft:lime_stained_glass_pane`) for the add-container button.
+    * Config migration `12`: Rename `enable-container-option-on-player-shop` to `enable-player-shop-open-container`. It only controls now whether players can remotely open a container's inventory from the shop editor. The container information itself is always shown.
+  * Editor: If `max-containers-per-player-shop` is greater than `1`, the container button inside the editor allows shop owners to view and edit the linked shop containers.
+    * Click the green glass pane item and then a nearby container to add it as an additional shop container. The usual checks apply (supported container, not already used by another shop, within `max-container-distance`, etc.).
+    * Left/Right-click a container to cycle through the different container types.
+    * If enabled, shift-right-click a container to remotely open it and inspect its content.
+    * Shift-left-click a container to remove it after additional confirmation.
+  * Available container types:
+    * `Stock`: The shop retrieves trade result items from this container. Trades show as "out-of-stock" if the required result items cannot be found across the stock containers.
+    * `Earnings`: The shop stores received items in this container. The shop prefers to store items in earnings containers that already contain the respective item.
+    * `Stock and Earnings`: The container stores both stock and earnings (default).
+  * If `max-containers-per-player-shop` is `1`, the container editor button behaves similar to before, but includes some additional information now. The single container (and any other previously added containers) automatically act as `Stock and Earnings`.
+  * The container information includes the coordinates, whether the container is a double chest, whether it is missing (i.e. no longer exists in the world), and, if support for multiple containers is enabled, its container type.
+  * `delete-shopkeeper-on-break-container` only takes effect when the last shop container is broken. Broken containers remain in the shop's list of containers and show as "missing".
+  * When moving a player shopkeeper, all of its containers must remain within the configured `max-container-distance`.
+  * Data:
+    * Player shop containers are migrated to a new format to support multiple containers.
+    * Shops may also have no container now.
+    * Bump the shopkeeper data version to `3` to detect and prevent downgrade attempts.
+  * API:
+    * Add `PlayerShopkeeper#getContainers()`, `#addContainer(...)`, `#removeContainer(...)`, and `#openContainersEditorWindow(...)`.
+    * Deprecate the previous single-container methods (`getContainerX/Y/Z`, `setContainer`, `getContainer`). They only affect the first container now and may not return results if the shop has no container, which is also a supported case now.
+* Add player shop expiration: Player shops can now be configured to expire after a certain duration.
+  * Config:
+    * Add setting `player-shop-expiration-days` (default: `0`, disabled): If greater than `0`, fully owned player shops (i.e. those that were not hired) expire and get deleted this many days after their current owner acquired them (i.e. after creation or transfer).
+    * Add setting `hired-player-shop-expiration-days` (default: `0`, disabled): If greater than `0`, hired player shops expire and revert back to their for-hire state this many days after they were hired.
+      * Note: Since we previously did not remember the previous hiring cost item once a shop was hired, this only applies to shopkeepers that are set for hire after this update. Existing previously hired player shops behave like fully owned player shops.
+      * Expiration has no effect on shops that are currently already waiting to be hired.
+      * Hiring a shop resets its expiration, even if it is hired again by its current owner, e.g. after it expired and reverted back to its for-hire state.
+    * Add setting `notify-shop-members-about-expiration` (default: `true`): Controls whether shop owners and members are notified when their shops are about to expire.
+      * If enabled, we notify players roughly 7 days, 3 days, 1 day, 12 hours, 1 hour and 10 minutes before their shop expires (configurable via `player-shop-expiration-notification-thresholds`), so they have a chance to clear their shop containers in time.
+      * We remember when we last notified each player, so we avoid notifying again for the same shop and notification threshold.
+      * Regardless of this setting, we always inform players about the expiration duration when they create or acquire a shop, and when a shop just expired and they happen to be online currently. However, we do not notify about shops that expired while they were offline.
+    * Add setting `player-shop-expiration-notification-thresholds` (default: `10080,4320,1440,720,60,10`): A comma-separated list of the notification thresholds in minutes before expiration at which shop members are reminded.
+      * The default corresponds to 7 days, 3 days, 1 day, 12 hours, 1 hour, and 10 minutes before expiration.
+      * Note: The expiration duration and notification thresholds are only rough estimates. For performance reasons, the plugin only checks for expirations and pending notifications every few minutes. Thresholds below this check interval may therefore not be reached before the shop expires.
+  * Expiration is checked roughly every 5 minutes, starting 5 minutes after plugin startup.
+    * Deleting an expired shop automatically unlocks its containers.
+    * All expirations are logged to the server log.
+  * Command: The `/shopkeeper list` output indicates when player shops will expire.
+  * Command: Add `/shopkeeper expiration [player]` (alias `/shopkeeper expiry`) to manually list up to the next 8 shops of a player that are about to expire.
+    * Permission: Without the optional player argument, this lists your own expiring shops (permission `shopkeeper.expiration.own`, default: `true`).
+    * Permission: The player can be specified by name or uuid, which also accounts for offline shop members (permission `shopkeeper.expiration.others`, default: `op`).
+    * This command can also be used from the console, in which case the player argument is required.
+    * Note: Since the expiration duration is only an estimate, some of the listed shops may already have reached their expiration time, but not have been expired yet.
+  * Data:
+    * Player shops now store when their current owner acquired the shop (`ownedSince`) and their cached expiration time (`expiration`), as well as which players have already been notified about which expiration thresholds (`expirationNotifications`). Timestamps are stored in the ISO-8601 instant format, thresholds in the ISO-8601 duration format.
+    * For shops that already existed before this update, we do not know when their current owner acquired them. When a shopkeeper is loaded and is missing `ownedSince`, we initialize it to the current timestamp.
+    * The for-hire state is decoupled from the hire cost item now: Player shops store a separate `forHire` flag now, and hired shops retain their hire cost item so that the for-hire state can later be restored. Existing for-hire shops are migrated automatically.
+  * Metrics: Add bStats metrics `player-shop-expiration-days` and `hired-player-shop-expiration-days`.
+  * API:
+    * Add `PlayerShopkeeper#getOwnedSince()`, `#getExpiration()`, `#resetExpiration()`, and `#expire()`.
+    * Add the cancellable `PlayerShopkeeperExpireEvent`: Called whenever a player shop is about to expire.
+* Changes to the hiring of player shops:
+  * Previously, hiring a shopkeeper fully transferred the ownership, including the ability of the new owner to delete the shopkeeper. Admins trying to use this feature to manage a controlled market area on their server had to manually monitor for stale market booths and set up new hireable shopkeepers over time. Now, owners of hired shopkeepers are more restricted in what they can do. And in combination with the new shop expiration feature (see setting `hired-player-shop-expiration-days`), it is now possible to set up temporarily hired shops that automatically revert back to their for-hire state once they expire.
+  * Change: Hired player shops can no longer be deleted by their shop members. Instead, the "delete" button in the editor reverts the shop to the for-hire state.
+    * This also applies to admins, so that they do not unknowingly observe a behavior that differs from what other players get, and to also allow them to revert the shop to the for-hire state via the editor. Players with the `shopkeeper.setforhire` permission additionally receive a hint that they can use the new `/shopkeeper setNotForHire` command first in order to then fully delete the shop afterwards.
+  * Command: `/shopkeeper remove` and `/shopkeeper removeAll` only deletes hired shopkeepers if the command executor has the `shopkeeper.bypass` permission.
+  * Change: Members of a hired player shop can access the shop containers, but are otherwise affected by the same restrictions as other players. I.e. they cannot break or build near the containers of the hired shop. Players with the `shopkeeper.bypass` permission are exempt from these restrictions, as before.
+  * Change: Hired player shops can no longer be moved via the editor, except by players with the `shopkeeper.setforhire` permission.
+  * Change: The containers of hired player shops can no longer be added or removed via the editor, except by players with the `shopkeeper.setforhire` permission.
+  * Change: Hiring a player shop clears its previous trade offers, unless the current owner re-hires the shop.
+  * Change: Shops that are currently for hire no longer count towards the `max-shops-per-player` limit (and the `shopkeeper.maxshops.<count>` permissions) of the current/previous owner. Without this change, players would not be able to re-hire their expired shopkeepers, or create or hire other shopkeepers after their previously hired shopkeeper(s) expired.
+  * Manual migration: Setting shops for hire requires the `shopkeeper.setforhire` permission, which is only granted to admins by default. If you assigned this permission to normal players in the past, it is recommended that you remove this permission from them again, because with these for-hire shops no longer counting towards the per-player shop limit, players with this permission can now create an unlimited number of shopkeepers on the server.
+  * Command: Add command `/shopkeeper setNotForHire` (permission `shopkeeper.setforhire`, same as for the `setForHire` command) to stop offering one of your shops for hire again and clearing its previously set hire cost item.
+  * Fix: Shops that are currently for hire can also no longer be traded with when the UI is attempted to be opened remotely via command or via the API.
+  * Fix: Automatically close any currently open hiring UIs when a shop stops being for hire or its hiring cost item changes. Players were already not able to hire these shops via the stale hiring UI before, but now we immediately close the stale UIs.
+  * Change: `player-shopkeeper-inactive-days` restores hired shops of inactive players to their for-hire state instead of deleting them.
+  * API:
+    * Add `PlayerShopkeeper#isHireable()`, `#setHired()`, `#setForHire()`.
+    * `PlayerShopkeeper#isForHire()` no longer implies that `#getHireCost()` is `null` when it returns `false`: A shop retains its hire cost item after having been hired.
+    * Add `Shopkeeper#clearOffers()`: Removes all trade offers, regardless of the type of shopkeeper.
+    * Shops that are already for hire are no longer included in `PlayerInactiveEvent#getShopkeepers()`, because they are not affected by the player inactivity handling. The event is no longer called at all for shop owners whose remaining shops are already all for hire.
+* Change: Inform players when the container protection prevents them from interacting with a shop container, breaking it, or placing a block next to it.
+* Config: Add `enable-left-click-interaction` (default: `false`): If enabled, left clicking (attacking) a shopkeeper mob is handled like a normal mob interaction, i.e. it opens the trading or editor menu.
+  * While not officially supported, this may for example be useful for Bedrock players in combination with the Geyser plugin: On Bedrock, not all mobs can be interacted with.
+  * This has no effect on block based shop objects such as sign shopkeepers.
+  * Note: Due to technical limitations, we cannot use Bukkit's damage events to detect players left clicking entities: There are cases in which the server does not call the damage events. This includes the shopkeeper mobs, which we mark as invulnerable in order to disable certain default mob behaviors, such as other mobs considering them as valid targets. Instead, depending on the server implementation, we detect left clicks either via the Paper-specific `PrePlayerAttackEntityEvent` event, or fall back to manual ray tracing on every player arm swing animation to check if the player is in reach of an entity. The latter may not be perfectly accurate and comes with a small performance overhead.
+  * Metrics: Add the bStats metrics entry `enable-left-click-interaction`.
+* Config: Add `max-player-shop-trades-pages` (default: `5`) to configure the number of trades pages of player shops separately.
+  * The previous `max-trades-pages` setting now only applies to admin shops and the villager editor.
+  * Manual migration: If you previously changed the `max-trades-pages` setting, you will need to manually adjust the new `max-player-shop-trades-pages` setting accordingly.
+* Fix: A player shop's members are cleared now whenever its owner changes, for example via `/shopkeeper transfer` or when another player hires the shop. Member access granted by the previous owner is not meant to carry over. If the current owner re-hires a shop, the previous members are preserved.
+  * Fix: This also resolves that transferring or hiring a shop to one of its own members previously left that player listed as both the owner and a member, which made the shop fail to load.
+  * API: This also applies to `PlayerShopkeeper#setOwner(...)`.
+* Command: `/shopkeeper transfer` informs the new owner about the received shop now, if they are online.
+* Command: `/shopkeeper transfer` automatically resets the for-hire state of the transferred shop, but preserves the hire cost item, as if the new owner had just hired the shop.
+* Fix: When a Citizen NPC player shopkeeper is moved to a different world, the shop containers keep working.
+  * Shop containers can technically be located in different worlds now.
+  * However, we still prevent players from manually moving their shops to a different world (via the max container distance check), because this can affect the performance.
+  * Also, if the `delete-shopkeeper-on-break-container` is enabled, shopkeepers may still get deleted if the world containing their containers is not loaded currently: We cannot differentiate between worlds being gone for good or only temporarily not available.
+* Fix: Trying to create a player shopkeeper in a world different to the world of the selected container resulted in an unhandled exception rather than the intended container distance error message.
+* Fix: Shopkeepers are stored more promptly to storage now when they are deleted because their containers got destroyed. We previously marked the storage "dirty", but did not actually trigger a delayed save.
+* Fix: Non-flying shopkeeper mobs could not be placed on top of reduced-height blocks such as chests, incorrectly reporting the location as midair.
+* Localization: Various messages support hex colors with the `&#` format now.
+  * `no-offers-open-editor-description`
+  * `set-villager-xp`
+  * `no-villager-trades-changed`
+  * `villager-trades-changed`
+  * `shop-type-desc-admin-regular`
+  * `shop-type-desc-selling`
+  * `shop-type-desc-buying`
+  * `shop-type-desc-trading`
+  * `shop-type-desc-book`
+  * `shop-setup-desc-selling`
+  * `shop-setup-desc-buying`
+  * `shop-setup-desc-trading`
+  * `shop-setup-desc-book`
+  * `shop-setup-desc-admin-regular`
+* API: Add support for moving shopkeepers.
+  * Add `Shopkeeper#teleport(Location, BlockFace)`: Updates the shopkeeper's stored location and moves its shop object. Unlike the editor's move option, this performs no spawn location validation.
+  * Add `ShopType#isValidSpawnLocation(Location, BlockFace, Shopkeeper)`, the shop type counterpart to `ShopObjectType#isValidSpawnLocation(Location, BlockFace)`, allowing add-ons to replicate the plugin's own spawn location validation.
+* Build: Add `shopkeepers-paper` module and move version unspecific Paper-specific code there.
+* Internal: The editor layout and its buttons are dynamically set up per editor view now, instead of being shared and cached across all editor views of a shopkeeper.
+  * This enables future flexibility, such as conditionally omitting certain buttons for specific players.
+  * Button setup methods, such as `AbstractShopObject#createEditorButtons`, are invoked once per opened editor view now.
+
+Removed messages:  
+* `button-container`
+* `button-container-lore`
+* `cannot-trade-with-shop-missing-container`
+
+Added messages:  
+* `button-containers`
+* `button-containers-lore`
+* `button-add-shop-container`
+* `button-add-shop-container-lore`
+* `shop-containers-editor-title`
+* `shop-container-title`
+* `shop-container-none-lore`
+* `shop-container-lore`
+* `single-shop-container-lore`
+* `shop-container-action-change-type`
+* `shop-container-action-open`
+* `single-shop-container-action-open`
+* `shop-container-action-remove`
+* `shop-container-state-missing`
+* `shop-container-state-double-chest`
+* `shop-container-type-stock`
+* `shop-container-type-earnings`
+* `shop-container-type-stock-and-earnings`
+* `shop-container-type-description-stock`
+* `shop-container-type-description-earnings`
+* `shop-container-type-description-stock-and-earnings`
+* `shop-container-missing`
+* `click-shop-container-to-add`
+* `container-selection-aborted`
+* `shop-container-added`
+* `shop-container-removed`
+* `confirmation-ui-remove-shop-container-title`
+* `confirmation-ui-remove-shop-container-lore`
+* `shop-received`
+* `list-shops-entry-expiration`
+* `list-expiring-shops-header`
+* `no-expiring-shops`
+* `shop-expiration-notification-header`
+* `shop-expiration-notification-entry`
+* `shop-expiration-notification-more`
+* `shop-expiration-notification-hint`
+* `shop-expired`
+* `shop-expiration-info`
+* `set-not-for-hire`
+* `cannot-trade-shop-for-hire`
+* `cannot-delete-hired-shop`
+* `cannot-move-hired-shop`
+* `shop-restored-for-hire`
+* `shop-already-for-hire`
+* `set-not-for-hire-to-delete-hint`
+* `cannot-interact-shop-container`
+* `cannot-break-shop-container`
+* `cannot-break-hired-shop-container`
+* `cannot-place-block-near-shop-container`
+* `cannot-place-block-near-hired-shop-container`
+* `button-restore-for-hire`
+* `button-restore-for-hire-lore`
+* `confirmation-ui-restore-shop-for-hire-title`
+* `confirmation-ui-restore-shop-for-hire-confirm-lore`
+* `hired-shops-not-removed`
+* `command-description-setnotforhire`
+* `command-description-expiration`
+
+Changed messages:  
+* `list-shops-entry`: Added the `{expiration}` placeholder.
+* `button-hire-lore`: Consistently use the "hire" instead of "sale" wording.
+* `command-description-setforhire`: Consistently use the "hire" instead of "sale" wording.
+
+## v2.27.0 (2026-06-29)
+### Supported MC versions: 26.2, 26.1.2, 1.21.11, 1.21.10, 1.21.8, 1.21.7, 1.21.6, 1.21.5
+
+* Update for MC 26.2.
+  * Add sulfur cube to the by default enabled mob types.
+    * The body equipment slot controls the stored item. However, certain items can result in "visual glitches".
+    * Config: Add `sulfur-cube-max-size` (default: `5`). The maximum supported size is `10`.
+    * On Spigot, the age lock is currently not working (SPIGOT-8139): The mob spawns with a random age and ages until the next respawn / chunk reload.
+  * Internal: Paper: Use EntityZapEvent in favor of PigZapEvent.
+* Add player shop members: Shop owners can now allow additional players access to their shops.
+  * Editor: Add a new option to the editor of player shops to allow owners to view and edit the shop members.
+    * Click the nametag item and then enter the name or id of a player to add as shop member into the chat.
+    * Left/Right-click a member to cycle through the different access levels.
+    * Shift-click a member to remove them after additional confirmation.
+  * Available shop member access levels:
+    * Container access.
+    * Container and editor access, excluding the ability to view/edit shop members or delete the shop.
+    * Full access (same as shop owner): Can also edit the shop members, delete the shop and, depending on the command permissions, manage the shopkeeper snapshots, set the shop for hire, or transfer the shop.
+  * Notes:
+    * Shop members are taken into account for command completions when the command requires a player name or id.
+    * The `prevent-trading-while-owner-is-online` and `prevent-trading-with-own-shop` settings also apply to other shop members now: Trading is disabled if any shop member is online and shop members cannot trade with shops they have access to (any access level).
+    * If `notify-shop-owners-about-trades` is enabled, the other shop members also receive trading notifications now.
+    * The `deleting-player-shop-returns-creation-item` also returns the shop creation item to players other than the owner if they have full shop access.
+    * The `remove-all` command and `ShopkeeperRegistry#getPlayerShopkeepersByOwner` only affects a player's actually owned shops, not shops they have access to.
+    * If `set-citizen-npc-owner-of-player-shops` is enabled: Citizens NPCs only support a single owner, so other players, even with full access, won't be able to edit the Citizens NPC.
+    * If a shop member's access level changes, any currently open shopkeeper or container view is automatically closed for them.
+    * The editor layout cannot be customized per-player, so the shop members and delete buttons are always visible to all players with access to the editor, but can only be used by players with full shop access.
+  * Config: Add setting `max-members-per-shop` (default: `9`).
+    * The shop members feature can be disabled by setting this to `0`.
+    * If the shop members feature is disabled, existing shop members are not automatically deleted from the shopkeeper data, but they are dynamically ignored by the plugin and API.
+    * If the limit is reduced, existing shop members are not automatically deleted, but no new members can be edited via the editor.
+  * Config: Add setting `allow-members-with-full-access` (default: `true`).
+    * If disabled, the access level of existing shop members with "full" access is not automatically updated inside the shopkeeper data, but their access level is dynamically downgraded to "edit" access.
+  * Config: Add setting `members-item` to change the editor item.
+  * Config: Add setting `add-member-item` to change the add-member editor item.
+  * Config: Config migration `11`:
+    * Rename `prevent-trading-while-owner-is-online` to `prevent-trading-while-member-is-online`.
+    * Rename `notify-shop-owners-about-trades` to `notify-shop-members-about-trades`.
+    * Rename `shop-owner-trade-notification-sound` to `shop-member-trade-notification-sound`.
+    * Rename debug option `owner-name-updates` to `player-name-updates`.
+  * Metrics: Add bStats metric `uses-shop-members`.
+* Mannequin shopkeepers use an "Alex" skinned player head now for their profile editor option to not conflict with the new members editor option.
+* Fix: Prevent shopkeeper mobs from being sheared by dispensers. Item drops were already prevented before, but other effects on the entity or the dispensed item were not prevented previously.
+* Fix: Since the last plugin version, shopkeepers were always marked as "dirty" every time they are loaded, causing a redundant save of all shopkeeper data.
+* Debug: Add option `shopkeeper-dirty` to output additional information whenever a shopkeeper's data is marked as "dirty".
+* API: Add methods to get and edit the player shop members.
+* API: Add `PlayerShopkeeper#isOwner(UUID)`.
+
+**Message changes:**  
+* Removed `not-owner`.
+* Renamed and changed `cannot-trade-while-owner-online` to `cannot-trade-while-member-online`.
+* Added `missing-access-level`.
+* Added `button-members`.
+* Added `button-members-lore`.
+* Added `shop-members-editor-title`.
+* Added `shop-member-title`.
+* Added `shop-member-lore`.
+* Added `button-add-shop-member`.
+* Added `button-add-shop-member-lore`.
+* Added `enter-new-shop-member`.
+* Added `cannot-add-shop-member-already-owner`.
+* Added `cannot-add-shop-member-already-member`.
+* Added `shop-member-added`.
+* Added `cannot-edit-shop-member-self`.
+* Added `cannot-edit-shop-member-no-longer-a-member`.
+* Added `your-shop-membership-has-changed`.
+* Added `confirmation-ui-remove-shop-member-title`.
+* Added `confirmation-ui-remove-shop-member-lore`.
+* Added `shop-member-removed`.
+* Added `player-shop-access-level-none`.
+* Added `player-shop-access-level-container`.
+* Added `player-shop-access-level-edit`.
+* Added `player-shop-access-level-full`.
+* Added `player-shop-access-level-description-none`.
+* Added `player-shop-access-level-description-container`.
+* Added `player-shop-access-level-description-edit`.
+* Added `player-shop-access-level-description-full`.
+* Added `text-input-aborted`.
+* Added `button-sulfur-cube-size`.
+* Added `button-sulfur-cube-size-lore`.
 
 ## v2.26.1 (2026-04-12)
 ### Supported MC versions: 26.1.2, 1.21.11, 1.21.10, 1.21.8, 1.21.7, 1.21.6, 1.21.5

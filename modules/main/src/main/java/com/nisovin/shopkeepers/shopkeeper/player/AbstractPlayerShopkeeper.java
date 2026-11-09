@@ -1,15 +1,22 @@
 package com.nisovin.shopkeepers.shopkeeper.player;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.block.Block;
+import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
@@ -25,21 +32,28 @@ import com.nisovin.shopkeepers.api.internal.util.Unsafe;
 import com.nisovin.shopkeepers.api.shopkeeper.ShopCreationData;
 import com.nisovin.shopkeepers.api.shopkeeper.ShopkeeperCreateException;
 import com.nisovin.shopkeepers.api.shopkeeper.TradingRecipe;
+import com.nisovin.shopkeepers.api.shopkeeper.container.DefaultShopContainerTypes;
+import com.nisovin.shopkeepers.api.shopkeeper.container.ShopContainer;
+import com.nisovin.shopkeepers.api.shopkeeper.container.ShopContainerType;
 import com.nisovin.shopkeepers.api.shopkeeper.player.PlayerShopCreationData;
 import com.nisovin.shopkeepers.api.shopkeeper.player.PlayerShopkeeper;
+import com.nisovin.shopkeepers.api.shopkeeper.player.members.DefaultPlayerShopAccessLevels;
+import com.nisovin.shopkeepers.api.shopkeeper.player.members.PlayerShopAccessLevel;
+import com.nisovin.shopkeepers.api.shopkeeper.player.members.PlayerShopMember;
 import com.nisovin.shopkeepers.api.ui.DefaultUITypes;
 import com.nisovin.shopkeepers.api.user.User;
 import com.nisovin.shopkeepers.api.util.UnmodifiableItemStack;
 import com.nisovin.shopkeepers.config.Settings;
 import com.nisovin.shopkeepers.config.Settings.DerivedSettings;
-import com.nisovin.shopkeepers.container.ShopContainers;
-import com.nisovin.shopkeepers.container.protection.ProtectedContainers;
+import com.nisovin.shopkeepers.container.SKShopContainer;
 import com.nisovin.shopkeepers.currency.Currencies;
 import com.nisovin.shopkeepers.currency.Currency;
+import com.nisovin.shopkeepers.currency.CurrencyInventoryUtils;
 import com.nisovin.shopkeepers.debug.DebugOptions;
 import com.nisovin.shopkeepers.items.ItemUpdates;
 import com.nisovin.shopkeepers.lang.Messages;
 import com.nisovin.shopkeepers.naming.ShopkeeperNaming;
+import com.nisovin.shopkeepers.playershops.expiration.ShopExpirationNotifications;
 import com.nisovin.shopkeepers.shopcreation.ShopCreationItem;
 import com.nisovin.shopkeepers.shopkeeper.AbstractShopkeeper;
 import com.nisovin.shopkeepers.shopkeeper.SKTradingRecipe;
@@ -47,13 +61,16 @@ import com.nisovin.shopkeepers.shopkeeper.ShopkeeperData;
 import com.nisovin.shopkeepers.shopkeeper.migration.Migration;
 import com.nisovin.shopkeepers.shopkeeper.migration.MigrationPhase;
 import com.nisovin.shopkeepers.shopkeeper.migration.ShopkeeperDataMigrator;
+import com.nisovin.shopkeepers.shopkeeper.player.members.SKPlayerShopMember;
+import com.nisovin.shopkeepers.ui.containers.PlayerShopContainersEditorViewProvider;
+import com.nisovin.shopkeepers.ui.lib.UISessionManager;
+import com.nisovin.shopkeepers.ui.members.PlayerShopMembersEditorViewProvider;
 import com.nisovin.shopkeepers.user.SKUser;
 import com.nisovin.shopkeepers.util.annotations.ReadOnly;
 import com.nisovin.shopkeepers.util.annotations.ReadWrite;
 import com.nisovin.shopkeepers.util.bukkit.BlockLocation;
 import com.nisovin.shopkeepers.util.bukkit.LocationUtils;
-import com.nisovin.shopkeepers.util.bukkit.MutableBlockLocation;
-import com.nisovin.shopkeepers.util.bukkit.SchedulerUtils;
+import com.nisovin.shopkeepers.util.bukkit.PermissionUtils;
 import com.nisovin.shopkeepers.util.bukkit.TextUtils;
 import com.nisovin.shopkeepers.util.data.container.DataContainer;
 import com.nisovin.shopkeepers.util.data.property.BasicProperty;
@@ -64,12 +81,14 @@ import com.nisovin.shopkeepers.util.data.serialization.DataAccessor;
 import com.nisovin.shopkeepers.util.data.serialization.InvalidDataException;
 import com.nisovin.shopkeepers.util.data.serialization.bukkit.ItemStackSerializers;
 import com.nisovin.shopkeepers.util.data.serialization.java.BooleanSerializers;
+import com.nisovin.shopkeepers.util.data.serialization.java.InstantSerializers;
 import com.nisovin.shopkeepers.util.data.serialization.java.NumberSerializers;
 import com.nisovin.shopkeepers.util.data.serialization.java.StringSerializers;
 import com.nisovin.shopkeepers.util.data.serialization.java.UUIDSerializers;
 import com.nisovin.shopkeepers.util.inventory.InventoryUtils;
 import com.nisovin.shopkeepers.util.inventory.ItemMigration;
 import com.nisovin.shopkeepers.util.inventory.ItemUtils;
+import com.nisovin.shopkeepers.util.java.CollectionUtils;
 import com.nisovin.shopkeepers.util.java.CyclicCounter;
 import com.nisovin.shopkeepers.util.java.RateLimiter;
 import com.nisovin.shopkeepers.util.java.StringUtils;
@@ -79,21 +98,180 @@ import com.nisovin.shopkeepers.util.logging.Log;
 public abstract class AbstractPlayerShopkeeper
 		extends AbstractShopkeeper implements PlayerShopkeeper {
 
+	static {
+		// Register shopkeeper data migrations:
+		// TODO Can be removed once all servers are expected to have updated to our new item stack
+		// serialization format.
+		ShopkeeperDataMigrator.registerMigration(new Migration(
+				"hire-cost-item",
+				MigrationPhase.ofShopkeeperClass(AbstractPlayerShopkeeper.class)
+		) {
+			@Override
+			public boolean migrate(
+					ShopkeeperData shopkeeperData,
+					String logPrefix
+			) throws InvalidDataException {
+				@Nullable UnmodifiableItemStack hireCost = shopkeeperData.get(HIRE_COST_ITEM);
+				if (hireCost == null) return false; // Nothing to migrate
+				assert !ItemUtils.isEmpty(hireCost);
+
+				boolean itemMigrated = false;
+				@Nullable UnmodifiableItemStack migratedHireCost = ItemMigration.migrateItemStack(hireCost);
+				if (!ItemUtils.isSimilar(hireCost, migratedHireCost)) {
+					if (ItemUtils.isEmpty(migratedHireCost)) {
+						throw new InvalidDataException("Hire cost item migration failed: " + hireCost);
+					}
+
+					hireCost = migratedHireCost;
+					itemMigrated = true;
+				}
+
+				if (!itemMigrated) return false; // Nothing migrated.
+
+				// Write back the migrated hire cost item:
+				shopkeeperData.set(HIRE_COST_ITEM, hireCost);
+				Log.debug(DebugOptions.itemMigrations, () -> logPrefix + "Migrated hire cost item.");
+				return true;
+			}
+		});
+
+		// Initialize the for-hire flag for shops that were stored before it was decoupled from the
+		// hire cost item:
+		ShopkeeperDataMigrator.registerMigration(new Migration(
+				"for-hire-flag",
+				MigrationPhase.ofShopkeeperClass(AbstractPlayerShopkeeper.class)
+		) {
+			@Override
+			public boolean migrate(
+					ShopkeeperData shopkeeperData,
+					String logPrefix
+			) throws InvalidDataException {
+				if (shopkeeperData.contains(FOR_HIRE.getName())) {
+					return false; // Already migrated
+				}
+
+				// Previously, a shop was for hire if it had a hire cost item:
+				if (!shopkeeperData.contains(HIRE_COST_ITEM.getName())) {
+					return false;
+				}
+
+				shopkeeperData.set(FOR_HIRE, true);
+				Log.debug(() -> logPrefix + "Migrated the for-hire state.");
+				return true;
+			}
+		});
+
+		// Initialize the owned-since timestamp for shops that were stored before it was tracked:
+		ShopkeeperDataMigrator.registerMigration(new Migration(
+				"owned-since",
+				MigrationPhase.ofShopkeeperClass(AbstractPlayerShopkeeper.class)
+		) {
+			@Override
+			public boolean migrate(
+					ShopkeeperData shopkeeperData,
+					String logPrefix
+			) throws InvalidDataException {
+				if (shopkeeperData.contains(OWNED_SINCE.getName())) {
+					return false; // Already migrated
+				}
+
+				// We do not know when the current owner acquired the shop, so we assume that they
+				// acquired it now:
+				shopkeeperData.set(OWNED_SINCE, Instant.now());
+				Log.debug(() -> logPrefix + "Initialized the " + OWNED_SINCE.getName()
+						+ " timestamp.");
+				return true;
+			}
+		});
+
+		// Migrate the legacy single-container storage (chestx/y/z) to the new container list:
+		ShopkeeperDataMigrator.registerMigration(new Migration(
+				"container-list",
+				MigrationPhase.ofShopkeeperClass(AbstractPlayerShopkeeper.class)
+		) {
+			@Override
+			public boolean migrate(
+					ShopkeeperData shopkeeperData,
+					String logPrefix
+			) throws InvalidDataException {
+				// Read the legacy container location (null if missing or already migrated):
+				BlockLocation legacyContainer = shopkeeperData.getOrNullIfMissing(CONTAINER);
+				if (legacyContainer == null) return false; // Nothing to migrate
+
+				// Apply the shopkeeper's world to the container: The legacy storage did not store
+				// the container's world, but derived it from the shopkeeper's world.
+				// If the shopkeeper has no world (e.g. missing or a virtual shopkeeper): Flagged as
+				// data error so the shopkeeper is not loaded and can be inspected and migrated
+				// manually.
+				String worldName = shopkeeperData.getOrNullIfMissing(AbstractShopkeeper.WORLD_NAME);
+				if (worldName == null) {
+					throw new InvalidDataException(
+							"Container list migration failed: The shopkeeper has no world!"
+					);
+				}
+
+				var location = new BlockLocation(
+						worldName,
+						legacyContainer.getX(),
+						legacyContainer.getY(),
+						legacyContainer.getZ()
+				);
+
+				// Convert to the new container list format:
+				var container = new SKShopContainer(
+						location,
+						DefaultShopContainerTypes.STOCK_AND_EARNINGS()
+				);
+				shopkeeperData.set(CONTAINERS, Collections.singletonList(container));
+
+				// Remove the legacy container data:
+				shopkeeperData.set(CONTAINER.getUnvalidatedSaver(), null);
+
+				Log.debug(() -> logPrefix + "Migrated container to the container list format.");
+				return true;
+			}
+		});
+	}
+
 	private static final int CHECK_CONTAINER_PERIOD_SECONDS = 5;
 	private static final CyclicCounter nextCheckingOffset = new CyclicCounter(
 			1,
 			CHECK_CONTAINER_PERIOD_SECONDS + 1
 	);
 
-	private User owner = SKUser.EMPTY; // Valid after successful initialization
-	// The world name of this BlockLocation matches the shopkeeper world name.
-	// TODO Allow the container to be located in a world different to that of the shopkeeper? This
-	// could also be useful for virtual player shops, which don't have a world themselves, but would
-	// still need a container block in a world.
-	// Immutable, valid after successful initialization:
-	private BlockLocation container = BlockLocation.EMPTY;
+	// Valid after successful initialization:
+	private PlayerShopMember owner = SKPlayerShopMember.EMPTY;
+	// The timestamp at which the current owner acquired this shop, e.g. via shop creation,
+	// transfer, or by hiring this shop.
+	// Used for example as the reference point for the shop's expiration.
+	// Defaults to the shop's creation time (now). Overwritten when the shop is loaded from data.
+	private Instant ownedSince = Instant.now();
+
+	private final List<SKPlayerShopMember> members = new ArrayList<SKPlayerShopMember>();
+	private final List<? extends PlayerShopMember> membersView = Collections.unmodifiableList(members);
+	// Each container stores its own world, which is usually, but not necessarily, the shopkeeper's
+	// world:
+	private final List<SKShopContainer> containers = new ArrayList<SKShopContainer>();
+	private final List<? extends SKShopContainer> containersView = Collections.unmodifiableList(containers);
 	private boolean notifyOnTrades = NOTIFY_ON_TRADES.getDefaultValue();
-	private @Nullable UnmodifiableItemStack hireCost = null; // Null if not for hire
+
+	private boolean forHire = false;
+	// Preserved when hired to potentially later restore the for-hire state:
+	private @Nullable UnmodifiableItemStack hireCost = null;
+
+	// The cached expiration timestamp that the expiration notifications were last computed against,
+	// or null if the shop does not expire or the expiration timestamp was not calculated yet.
+	// Persisted so that changes to the configured expiration duration can be detected and the
+	// notification state can be reset accordingly:
+	private @Nullable Instant expiration = null;
+	// Whether the cached expiration needs to be recalculated, e.g. because the shop's ownership or
+	// hire state changed. Initially true, so that the expiration is also recalculated for newly
+	// created and loaded shops (the configured expiration durations might have changed since the
+	// shop was saved).
+	private boolean expirationOutdated = true;
+	// Tracks which shop members have already been notified at which expiration notification
+	// thresholds:
+	private ShopExpirationNotifications expirationNotifications = new ShopExpirationNotifications();
 
 	// Initial threshold between [1, CHECK_CONTAINER_PERIOD_SECONDS] for load balancing:
 	private final RateLimiter checkContainerLimiter = new RateLimiter(
@@ -118,14 +296,25 @@ public abstract class AbstractPlayerShopkeeper
 		super.loadFromCreationData(id, shopCreationData);
 		PlayerShopCreationData playerShopCreationData = (PlayerShopCreationData) shopCreationData;
 		Player owner = Unsafe.assertNonNull(playerShopCreationData.getCreator());
-		Block container = playerShopCreationData.getShopContainer();
+		Block containerBlock = playerShopCreationData.getShopContainer();
 
 		this._setOwner(owner.getUniqueId(), Unsafe.assertNonNull(owner.getName()));
-		this._setContainer(container.getX(), container.getY(), container.getZ());
+
+		SKShopContainer container = new SKShopContainer(
+				BlockLocation.of(containerBlock),
+				DefaultShopContainerTypes.STOCK_AND_EARNINGS()
+		);
+		this._setContainers(Collections.singletonList(container));
 	}
 
 	@Override
 	protected void setup() {
+		this.registerViewProviderIfMissing(DefaultUITypes.SHOP_MEMBERS_EDITOR(), () -> {
+			return new PlayerShopMembersEditorViewProvider(this);
+		});
+		this.registerViewProviderIfMissing(DefaultUITypes.SHOP_CONTAINERS_EDITOR(), () -> {
+			return new PlayerShopContainersEditorViewProvider(this);
+		});
 		this.registerViewProviderIfMissing(DefaultUITypes.HIRING(), () -> {
 			return new PlayerShopHiringViewProvider(this);
 		});
@@ -135,19 +324,36 @@ public abstract class AbstractPlayerShopkeeper
 	@Override
 	public void loadDynamicState(ShopkeeperData shopkeeperData) throws InvalidDataException {
 		super.loadDynamicState(shopkeeperData);
+		this.loadOwnedSince(shopkeeperData);
 		this.loadOwner(shopkeeperData);
-		this.loadContainer(shopkeeperData);
+		this.loadMembers(shopkeeperData);
+		this.loadContainers(shopkeeperData);
 		this.loadNotifyOnTrades(shopkeeperData);
 		this.loadForHire(shopkeeperData);
+		this.loadExpiration(shopkeeperData);
+		this.loadExpirationNotifications(shopkeeperData);
+
+		// Re-check the expiration whenever the shop is loaded or a snapshot has been applied:
+		this.markExpirationOutdated();
+
+		// Requires the owner, the members, and the notifications to be loaded:
+		this.pruneExpirationNotifications();
 	}
 
 	@Override
 	public void saveDynamicState(ShopkeeperData shopkeeperData, boolean saveAll) {
 		super.saveDynamicState(shopkeeperData, saveAll);
+		// TODO Really save and restore owner, members and shop containers as part of the dynamic
+		// state? Skip loading them if applied to another shopkeeper? Add a parameter that controls
+		// what kind of data to save/restore?
+		this.saveOwnedSince(shopkeeperData);
 		this.saveOwner(shopkeeperData);
-		this.saveContainer(shopkeeperData);
+		this.saveMembers(shopkeeperData);
+		this.saveContainers(shopkeeperData);
 		this.saveNotifyOnTrades(shopkeeperData);
 		this.saveForHire(shopkeeperData);
+		this.saveExpiration(shopkeeperData);
+		this.saveExpirationNotifications(shopkeeperData);
 	}
 
 	// ITEM UPDATES
@@ -184,7 +390,7 @@ public abstract class AbstractPlayerShopkeeper
 		super.onAdded(cause);
 
 		// Enable the container protection:
-		this.protectContainer();
+		this.protectContainers();
 	}
 
 	@Override
@@ -192,13 +398,15 @@ public abstract class AbstractPlayerShopkeeper
 		super.onRemoval(cause);
 
 		// Disable the container protection:
-		this.unprotectContainer();
+		this.unprotectContainers();
 	}
 
 	@Override
 	public void delete(@Nullable Player player) {
 		// Return the shop creation item:
-		if (Settings.deletingPlayerShopReturnsCreationItem && player != null && this.isOwner(player)) {
+		if (Settings.deletingPlayerShopReturnsCreationItem
+				&& player != null
+				&& this.hasAccessLevel(player, DefaultPlayerShopAccessLevels.FULL())) {
 			ItemStack shopCreationItem = ShopCreationItem.create();
 			Map<Integer, ItemStack> remaining = player.getInventory().addItem(shopCreationItem);
 			if (!remaining.isEmpty()) {
@@ -230,22 +438,6 @@ public abstract class AbstractPlayerShopkeeper
 	}
 
 	@Override
-	protected void onShopkeeperMoved() {
-		super.onShopkeeperMoved();
-
-		// Update the container location and the registered container protection if the shopkeeper
-		// has been moved to a different world:
-		// The container is (currently) assumed to always be located in the same world as the
-		// shopkeeper. If the shopkeeper is moved to a different world, the container is expected to
-		// also have been moved. Otherwise, if the container cannot be found in the new world,
-		// trading will not work.
-		if (!Objects.equals(this.getWorldName(), container.getWorldName())) {
-			// This updates the container's world based on the shopkeeper's current world:
-			this._setContainer(container);
-		}
-	}
-
-	@Override
 	public void onPlayerInteraction(Player player) {
 		Validate.notNull(player, "player is null");
 		// Naming via item:
@@ -260,11 +452,9 @@ public abstract class AbstractPlayerShopkeeper
 
 				ShopkeeperNaming shopkeeperNaming = SKShopkeepersPlugin.getInstance().getShopkeeperNaming();
 				if (shopkeeperNaming.requestNameChange(player, this, newName)) {
-					// Manually remove rename item from player's hand after this event is processed:
-					SchedulerUtils.runEntityTaskOrOmit(ShopkeepersPlugin.getInstance(), player, () -> {
-						ItemStack newItemInMainHand = ItemUtils.decreaseItemAmount(itemInMainHand, 1);
-						playerInventory.setItemInMainHand(newItemInMainHand);
-					});
+					// Remove the naming item from player's hand:
+					ItemStack newItemInMainHand = ItemUtils.decreaseItemAmount(itemInMainHand, 1);
+					playerInventory.setItemInMainHand(newItemInMainHand);
 				}
 				return;
 			}
@@ -311,6 +501,12 @@ public abstract class AbstractPlayerShopkeeper
 			})
 			.build();
 
+	// Required. Initialized via a migration for shops that were created before this data was
+	// tracked.
+	public static final Property<Instant> OWNED_SINCE = new BasicProperty<Instant>()
+			.dataKeyAccessor("ownedSince", InstantSerializers.ISO)
+			.build();
+
 	private void loadOwner(ShopkeeperData shopkeeperData) throws InvalidDataException {
 		assert shopkeeperData != null;
 		this._setOwner(shopkeeperData.get(OWNER));
@@ -318,7 +514,15 @@ public abstract class AbstractPlayerShopkeeper
 
 	private void saveOwner(ShopkeeperData shopkeeperData) {
 		assert shopkeeperData != null;
-		shopkeeperData.set(OWNER, owner);
+		shopkeeperData.set(OWNER, owner.getUser());
+	}
+
+	private void loadOwnedSince(ShopkeeperData shopkeeperData) throws InvalidDataException {
+		this.ownedSince = shopkeeperData.get(OWNED_SINCE);
+	}
+
+	private void saveOwnedSince(ShopkeeperData shopkeeperData) {
+		shopkeeperData.set(OWNED_SINCE, ownedSince);
 	}
 
 	@Override
@@ -328,14 +532,32 @@ public abstract class AbstractPlayerShopkeeper
 
 	// TODO Add to API
 	public void setOwner(User owner) {
+		this.onOwnerChanging(owner.getUniqueId());
 		this._setOwner(owner);
 		this.markDirty();
 	}
 
 	@Override
 	public void setOwner(UUID ownerUUID, String ownerName) {
+		this.onOwnerChanging(ownerUUID);
 		this._setOwner(ownerUUID, ownerName);
 		this.markDirty();
+	}
+
+	// Invoked when the owner is about to change.
+	// Resets the shop's expiration when its owner changes to a different player (for example via
+	// transfer or hiring), so that the new owner gets a full expiration duration.
+	private void onOwnerChanging(UUID newOwnerId) {
+		if (this.getOwnerUUID().equals(newOwnerId)) return;
+
+		// The shop members were granted access by the previous owner, so they do not carry over to
+		// the new owner. This also ensures that the new owner is not also listed as a member.
+		this._setMembers(Collections.emptyList());
+
+		this.resetExpiration();
+
+		// Note: No pruneExpirationNotifications() required here: resetExpiration() and a subsequent
+		// ensureExpirationUpToDate() will already clear the notifications eventually.
 	}
 
 	private void _setOwner(UUID ownerUUID, String ownerName) {
@@ -344,39 +566,297 @@ public abstract class AbstractPlayerShopkeeper
 
 	private void _setOwner(User owner) {
 		Validate.notNull(owner, "owner is null");
-		this.owner = owner;
+		this.owner = new SKPlayerShopMember(owner, true, DefaultPlayerShopAccessLevels.FULL());
 
 		// Inform the shop object:
 		this.getShopObject().onShopOwnerChanged();
 	}
 
 	public User getOwnerUser() {
-		return owner;
+		return owner.getUser();
 	}
 
 	@Override
 	public UUID getOwnerUUID() {
-		return owner.getUniqueId();
+		return owner.getUser().getUniqueId();
 	}
 
 	@Override
 	public String getOwnerName() {
-		return owner.getLastKnownName();
+		return owner.getUser().getLastKnownName();
 	}
 
 	@Override
 	public String getOwnerString() {
-		return TextUtils.getPlayerString(owner);
+		return TextUtils.getPlayerString(owner.getUser());
 	}
 
 	@Override
 	public boolean isOwner(Player player) {
-		return player.getUniqueId().equals(this.getOwnerUUID());
+		return this.isOwner(player.getUniqueId());
+	}
+
+	@Override
+	public boolean isOwner(UUID playerUUID) {
+		return this.getOwnerUUID().equals(playerUUID);
 	}
 
 	@Override
 	public @Nullable Player getOwner() {
 		return Bukkit.getPlayer(this.getOwnerUUID());
+	}
+
+	@Override
+	public Instant getOwnedSince() {
+		return ownedSince;
+	}
+
+	// MEMBERS
+
+	public static final Property<List<? extends PlayerShopMember>> MEMBERS = new BasicProperty<List<? extends PlayerShopMember>>()
+			.dataKeyAccessor("members", SKPlayerShopMember.LIST_SERIALIZER)
+			.useDefaultIfMissing()
+			.defaultValue(Collections.emptyList())
+			.build();
+
+	private void loadMembers(ShopkeeperData shopkeeperData) throws InvalidDataException {
+		assert shopkeeperData != null;
+		this._setMembers(shopkeeperData.get(MEMBERS));
+	}
+
+	private void saveMembers(ShopkeeperData shopkeeperData) {
+		assert shopkeeperData != null;
+		shopkeeperData.set(MEMBERS, membersView);
+	}
+
+	@Override
+	public Collection<? extends PlayerShopMember> getMembers() {
+		if (Settings.maxMembersPerShop == 0) {
+			// Shop members feature is disabled:
+			return Collections.emptyList();
+		}
+
+		return membersView;
+	}
+
+	// Includes the shop owner:
+	public void forEachMember(Consumer<User> action) {
+		action.accept(this.getOwnerUser());
+		for (PlayerShopMember member : this.getMembers()) {
+			action.accept(member.getUser());
+		}
+	}
+
+	public @Nullable Player getFirstOnlineMember() {
+		var owner = this.getOwner();
+		if (owner != null) {
+			return owner;
+		}
+
+		for (var member : this.getMembers()) {
+			var memberPlayer = member.getUser().getPlayer();
+			if (memberPlayer != null) {
+				return memberPlayer;
+			}
+		}
+
+		return null;
+	}
+
+	private void _setMembers(List<? extends PlayerShopMember> members) {
+		assert members != null && !CollectionUtils.containsNull(members);
+		this.members.clear();
+		members.forEach(this::_addMember);
+	}
+
+	private void _addMember(PlayerShopMember member) {
+		Validate.notNull(member, "member is null");
+		Validate.isTrue(member instanceof SKPlayerShopMember,
+				"Member is not of type SKPlayerShopMember!");
+
+		var skMember = (SKPlayerShopMember) member;
+		Validate.isTrue(!skMember.isOwner(), "Cannot add shop owner as member!");
+
+		var playerUUID = member.getUser().getUniqueId();
+		Validate.isTrue(!this.isOwner(playerUUID), "Cannot add shop owner as member!");
+		Validate.isTrue(this._getMember(playerUUID) == null, "Already a member!");
+		Validate.isTrue(member.getAccessLevel() != DefaultPlayerShopAccessLevels.NONE(),
+				"Invalid member access level: " + DefaultPlayerShopAccessLevels.NONE().getIdentifier());
+
+		members.add((SKPlayerShopMember) member);
+	}
+
+	@Override
+	public void addMember(UUID playerUUID, String playerName, PlayerShopAccessLevel accessLevel) {
+		if (Settings.maxMembersPerShop == 0) {
+			// Shop members feature is disabled:
+			return;
+		}
+
+		var user = SKUser.of(playerUUID, playerName);
+		var newMember = new SKPlayerShopMember(user, false, accessLevel);
+		// Validate the new member:
+		this._addMember(newMember);
+		this.markDirty();
+	}
+
+	@Override
+	public void removeMember(UUID playerUUID) {
+		Validate.isTrue(!this.isOwner(playerUUID), "Cannot remove shop owner from members!");
+		if (members.removeIf(x -> x.getUser().getUniqueId().equals(playerUUID))) {
+			this.pruneExpirationNotifications();
+			this.markDirty();
+		}
+	}
+
+	/**
+	 * Updates the specified shop member, i.e. their name and/or access level.
+	 * <p>
+	 * Unlike removing and re-adding the member, this preserves the members position in the member
+	 * list.
+	 * 
+	 * @param playerUUID
+	 *            the member's uuid, not <code>null</code>
+	 * @param playerName
+	 *            the member's name, or <code>null</code> to preserve the current name
+	 * @param accessLevel
+	 *            the {@link PlayerShopAccessLevel}, not
+	 *            {@link DefaultPlayerShopAccessLevels#getNone()}, or <code>null</code> to preserve
+	 *            the current access level
+	 * @throws IllegalArgumentException
+	 *             if the specified player is the {@link #isOwner(UUID) owner} or not a
+	 *             {@link #isMember(UUID) member}
+	 */
+	public void updateMember(
+			UUID playerUUID,
+			@Nullable String playerName,
+			@Nullable PlayerShopAccessLevel accessLevel
+	) {
+		Validate.isTrue(!this.isOwner(playerUUID), "The specified player is the shop owner!");
+		Validate.isTrue(accessLevel != DefaultPlayerShopAccessLevels.NONE(),
+				"Invalid member access level: " + DefaultPlayerShopAccessLevels.NONE().getIdentifier());
+
+		var member = this.getMember(playerUUID);
+		if (member == null) {
+			throw new IllegalArgumentException("The specified player is not a shop member!");
+		}
+
+		// Update the member, preserving its position within the members list:
+
+		var index = members.indexOf(member);
+		assert index >= 0 && index < members.size();
+
+		var newMemberName = playerName == null ? member.getUser().getName() : playerName;
+		var newUser = SKUser.of(playerUUID, newMemberName);
+		var newAccessLevel = accessLevel == null ? member.getAccessLevel() : accessLevel;
+
+		var newMember = new SKPlayerShopMember(newUser, false, newAccessLevel);
+		members.set(index, newMember);
+		this.markDirty();
+	}
+
+	@Override
+	public @Nullable PlayerShopMember getMember(UUID playerUUID) {
+		if (this.isOwner(playerUUID)) {
+			return owner;
+		}
+
+		// Shop members feature is disabled:
+		if (Settings.maxMembersPerShop == 0) {
+			return null;
+		}
+
+		return this._getMember(playerUUID);
+	}
+
+	// No owner or setting check:
+	private @Nullable PlayerShopMember _getMember(UUID playerUUID) {
+		for (var member : membersView) {
+			if (member.getUser().getUniqueId().equals(playerUUID)) {
+				return member;
+			}
+		}
+
+		return null;
+	}
+
+	@Override
+	public boolean isMember(Player player) {
+		return this.isMember(player.getUniqueId());
+	}
+
+	@Override
+	public boolean isMember(UUID playerUUID) {
+		return this.getMember(playerUUID) != null;
+	}
+
+	@Override
+	public PlayerShopAccessLevel getAccessLevel(UUID playerUUID) {
+		// Includes the owner:
+		var member = this.getMember(playerUUID);
+		if (member == null) {
+			return DefaultPlayerShopAccessLevels.NONE();
+		}
+
+		return member.getAccessLevel();
+	}
+
+	@Override
+	public void setAccessLevel(UUID playerUUID, PlayerShopAccessLevel accessLevel) {
+		// Update the member, preserving its name and its position within the members list:
+		this.updateMember(playerUUID, null, accessLevel);
+	}
+
+	@Override
+	public boolean hasAccessLevel(Player player, PlayerShopAccessLevel accessLevel) {
+		return this.hasAccessLevel(player.getUniqueId(), accessLevel);
+	}
+
+	@Override
+	public boolean hasAccessLevel(UUID playerUUID, PlayerShopAccessLevel accessLevel) {
+		var memberAccessLevel = this.getAccessLevel(playerUUID);
+		return memberAccessLevel.includes(accessLevel);
+	}
+
+	/**
+	 * Checks if the given {@link CommandSender} has either the specified
+	 * {@link PlayerShopAccessLevel} or the bypass permission.
+	 * <p>
+	 * For non-player {@link CommandSender}s, this only checks the bypass permission.
+	 * 
+	 * @param sender
+	 *            the {@link CommandSender}, not <code>null</code>
+	 * @param accessLevel
+	 *            the {@link PlayerShopAccessLevel}, not <code>null</code>
+	 * @param silent
+	 *            <code>true</code> to omit any feedback that might otherwise be sent to the sender
+	 * @return <code>true</code> if the sender has the specified access level for this shopkeeper
+	 */
+	public boolean checkAccess(CommandSender sender, PlayerShopAccessLevel accessLevel, boolean silent) {
+		Validate.notNull(sender, "sender is null");
+		Validate.notNull(accessLevel, "accessLevel is null");
+
+		if (sender instanceof Player player) {
+			if (!this.hasAccessLevel(player, accessLevel)
+					&& !PermissionUtils.hasPermission(player, ShopkeepersPlugin.BYPASS_PERMISSION)) {
+				if (!silent) {
+					TextUtils.sendMessage(player, Messages.missingAccessLevel);
+				}
+				return false;
+			}
+
+			return true;
+		} else {
+			// Check if the command sender has the bypass permission (e.g. the case for the console
+			// and block command senders, but might not be the case for other unexpected types of
+			// command senders):
+			return PermissionUtils.hasPermission(sender, ShopkeepersPlugin.BYPASS_PERMISSION);
+		}
+	}
+
+	public boolean canEditMembers(Player player, boolean silent) {
+		Validate.notNull(player, "player is null");
+		return this.canAccess(player, DefaultUITypes.SHOP_MEMBERS_EDITOR(), silent);
 	}
 
 	// TRADE NOTIFICATIONS
@@ -415,64 +895,37 @@ public abstract class AbstractPlayerShopkeeper
 
 	// HIRING
 
+	// Not omitted when false, so that the presence of the data key reliably indicates whether the
+	// legacy data has already been migrated (separate hire cost and for-hire state data).
+	public static final Property<Boolean> FOR_HIRE = new BasicProperty<Boolean>()
+			.dataKeyAccessor("forHire", BooleanSerializers.LENIENT)
+			.defaultValue(false)
+			.useDefaultIfMissing()
+			.build();
+
 	public static final Property<@Nullable UnmodifiableItemStack> HIRE_COST_ITEM = new BasicProperty<@Nullable UnmodifiableItemStack>()
 			.dataKeyAccessor("hirecost", ItemStackSerializers.UNMODIFIABLE)
 			.validator(ItemStackValidators.Unmodifiable.NON_EMPTY)
-			.nullable() // Null if the shop is not for hire
+			.nullable()
 			.defaultValue(null)
 			.build();
 
-	static {
-		// Register shopkeeper data migrations:
-		// TODO Can be removed once all servers are expected to have updated to our new item stack
-		// serialization format.
-		ShopkeeperDataMigrator.registerMigration(new Migration(
-				"hire-cost-item",
-				MigrationPhase.ofShopkeeperClass(AbstractPlayerShopkeeper.class)
-		) {
-			@Override
-			public boolean migrate(
-					ShopkeeperData shopkeeperData,
-					String logPrefix
-			) throws InvalidDataException {
-				@Nullable UnmodifiableItemStack hireCost = shopkeeperData.get(HIRE_COST_ITEM);
-				if (hireCost == null) return false; // Nothing to migrate
-				assert !ItemUtils.isEmpty(hireCost);
-
-				boolean itemMigrated = false;
-				@Nullable UnmodifiableItemStack migratedHireCost = ItemMigration.migrateItemStack(hireCost);
-				if (!ItemUtils.isSimilar(hireCost, migratedHireCost)) {
-					if (ItemUtils.isEmpty(migratedHireCost)) {
-						throw new InvalidDataException("Hire cost item migration failed: " + hireCost);
-					}
-
-					hireCost = migratedHireCost;
-					itemMigrated = true;
-				}
-
-				if (!itemMigrated) return false; // Nothing migrated.
-
-				// Write back the migrated hire cost item:
-				shopkeeperData.set(HIRE_COST_ITEM, hireCost);
-				Log.debug(DebugOptions.itemMigrations, () -> logPrefix + "Migrated hire cost item.");
-				return true;
-			}
-		});
-	}
-
 	private void loadForHire(ShopkeeperData shopkeeperData) throws InvalidDataException {
 		assert shopkeeperData != null;
-		this._setForHire(shopkeeperData.get(HIRE_COST_ITEM));
+		boolean forHire = shopkeeperData.get(FOR_HIRE);
+		@Nullable UnmodifiableItemStack hireCost = shopkeeperData.get(HIRE_COST_ITEM);
+		this._setForHire(forHire, hireCost);
 	}
 
 	private void saveForHire(ShopkeeperData shopkeeperData) {
 		assert shopkeeperData != null;
+		shopkeeperData.set(FOR_HIRE, forHire);
 		shopkeeperData.set(HIRE_COST_ITEM, hireCost);
 	}
 
 	@Override
 	public boolean isForHire() {
-		return (hireCost != null);
+		return forHire && this.isHireable();
 	}
 
 	@Override
@@ -482,26 +935,61 @@ public abstract class AbstractPlayerShopkeeper
 
 	@Override
 	public void setForHire(@Nullable UnmodifiableItemStack hireCost) {
-		this._setForHire(hireCost);
+		// A non-empty hire cost item enables hiring. An empty item clears both the for-hire state
+		// and the hire cost item:
+		this._setForHire(true, hireCost);
+		this.markExpirationOutdated();
 		this.markDirty();
 	}
 
-	private void _setForHire(@Nullable UnmodifiableItemStack hireCost) {
-		boolean isForHire = this.isForHire();
-		if (ItemUtils.isEmpty(hireCost)) {
-			// Disable hiring:
-			this.hireCost = null;
+	@Override
+	public void setForHire() {
+		if (hireCost == null) return;
 
-			// If the shopkeeper was previously for hire, reset its name:
-			if (isForHire) {
-				this.setName("");
-			}
+		this.setForHire(hireCost);
+	}
+
+	@Override
+	public void setHired() {
+		if (!this.isForHire()) return;
+
+		// Preserves the hire cost item:
+		this._setForHire(false, hireCost);
+
+		// Reset the expiration:
+		// This also resets the owned-since timestamp when the current owner re-hires the shop.
+		// Note: The shop's ownership is updated separately.
+		this.resetExpiration();
+
+		this.markDirty();
+	}
+
+	// forHire: Only relevant when the hireCost is not null.
+	private void _setForHire(boolean forHire, @Nullable UnmodifiableItemStack hireCost) {
+		boolean wasForHire = this.isForHire();
+		if (ItemUtils.isEmpty(hireCost)) {
+			// Clear the hire cost item and the for-hire state:
+			this.hireCost = null;
+			this.forHire = false;
 		} else {
-			// Set for hire:
 			this.hireCost = Unsafe.assertNonNull(hireCost);
-			this.setName(Messages.forHireTitle);
+			this.forHire = forHire;
 		}
-		// TODO Close any currently open hiring UIs for players.
+
+		if (this.isForHire()) {
+			this.setName(Messages.forHireTitle);
+		} else if (wasForHire) {
+			// If the shopkeeper was previously for hire, reset its name:
+			this.setName("");
+		}
+
+		if (wasForHire) {
+			// Close any currently open hiring UIs, because they may display an outdated for-hire
+			// state or hire cost item:
+			// TODO Send a feedback message to players?
+			UISessionManager.getInstance()
+					.abortUISessionsForContextDelayed(this, DefaultUITypes.HIRING());
+		}
 	}
 
 	@Override
@@ -509,21 +997,186 @@ public abstract class AbstractPlayerShopkeeper
 		return hireCost;
 	}
 
-	// CONTAINER
+	@Override
+	public boolean isHireable() {
+		return this.getHireCost() != null;
+	}
 
-	// TODO Rename the storage keys to containerx/y/z?
-	// TODO Change to a list of containers?
-	// TODO Store container world independently of shopkeeper world?
-	public static final Property<Integer> CONTAINER_X = new BasicProperty<Integer>()
+	// EXPIRATION
+
+	public static final Property<@Nullable Instant> EXPIRATION = new BasicProperty<@Nullable Instant>()
+			.dataKeyAccessor("expiration", InstantSerializers.ISO)
+			.nullable() // Null if the shop does not expire
+			.defaultValue(null)
+			.omitIfDefault()
+			.build();
+
+	public static final Property<ShopExpirationNotifications> EXPIRATION_NOTIFICATIONS = new BasicProperty<ShopExpirationNotifications>()
+			.dataKeyAccessor("expirationNotifications", ShopExpirationNotifications.SERIALIZER)
+			.defaultValueSupplier(ShopExpirationNotifications::new)
+			.omitIfDefault()
+			.build();
+
+	private void loadExpiration(ShopkeeperData shopkeeperData) throws InvalidDataException {
+		this.expiration = shopkeeperData.get(EXPIRATION);
+	}
+
+	private void saveExpiration(ShopkeeperData shopkeeperData) {
+		shopkeeperData.set(EXPIRATION, expiration);
+	}
+
+	private void loadExpirationNotifications(ShopkeeperData shopkeeperData) throws InvalidDataException {
+		this.expirationNotifications = shopkeeperData.get(EXPIRATION_NOTIFICATIONS);
+	}
+
+	private void saveExpirationNotifications(ShopkeeperData shopkeeperData) {
+		shopkeeperData.set(EXPIRATION_NOTIFICATIONS, expirationNotifications);
+	}
+
+	// The expiration timestamp is cached and only recalculated if it is outdated.
+	@Override
+	public @Nullable Instant getExpiration() {
+		this.ensureExpirationUpToDate();
+		return expiration;
+	}
+
+	/**
+	 * Marks the cached {@link #getExpiration() expiration} timestamp as outdated, so that it is
+	 * recalculated once the next time it is queried.
+	 */
+	public void markExpirationOutdated() {
+		expirationOutdated = true;
+	}
+
+	@Override
+	public void resetExpiration() {
+		ownedSince = Instant.now();
+		this.markExpirationOutdated();
+		this.markDirty();
+	}
+
+	// Recalculates the cached expiration timestamp if it is outdated.
+	// This also has to be called before the expiration notification state is queried or modified,
+	// because recalculating the expiration can reset the notification state.
+	private void ensureExpirationUpToDate() {
+		if (!expirationOutdated) {
+			return;
+		}
+
+		expirationOutdated = false;
+
+		@Nullable Instant newExpiration = null;
+		@Nullable Duration expirationDuration = this.getExpirationDuration();
+		if (expirationDuration != null) {
+			newExpiration = this.getOwnedSince().plus(expirationDuration);
+		}
+
+		if (Objects.equals(newExpiration, expiration)) {
+			return;
+		}
+
+		// The expiration timestamp changed, for example because the configured expiration duration
+		// was changed: Reset the notification state, so that fresh notifications are sent for the
+		// new expiration timestamp.
+		expiration = newExpiration;
+		expirationNotifications.clear();
+
+		// Trigger a delayed save here, because unlike most other data changes, this change is not
+		// triggered by a caller directly, but can occur during any query of the expiration:
+		this.saveDelayed();
+	}
+
+	// Returns the configured expiration duration that applies to this shop, or null if this shop
+	// does not expire (for example while it is for hire).
+	private @Nullable Duration getExpirationDuration() {
+		// For-hire shops do not expire while they are waiting to be hired:
+		if (this.isForHire()) return null;
+
+		int expirationDays = (hireCost != null)
+				? Settings.hiredPlayerShopExpirationDays
+				: Settings.playerShopExpirationDays;
+		if (expirationDays <= 0) return null;
+
+		return Duration.ofDays(expirationDays);
+	}
+
+	/**
+	 * Gets the last expiration notification threshold (i.e. the remaining time before the
+	 * expiration) the specified player has been notified at.
+	 * 
+	 * @param playerId
+	 *            the player's unique id, not <code>null</code>
+	 * @return the last notification threshold, or <code>null</code> if the player has not been
+	 *         notified yet
+	 */
+	public @Nullable Duration getLastExpirationNotified(UUID playerId) {
+		// An outdated expiration can reset the notification state:
+		this.ensureExpirationUpToDate();
+		return expirationNotifications.get(playerId);
+	}
+
+	/**
+	 * Sets the last expiration notification threshold (i.e. the remaining time before the
+	 * expiration) the specified player has been notified at.
+	 * 
+	 * @param playerId
+	 *            the player's unique id, not <code>null</code>
+	 * @param threshold
+	 *            the notification threshold to set, or <code>null</code> to clear the last
+	 *            notification threshold for the player
+	 */
+	public void setLastExpirationNotified(UUID playerId, @Nullable Duration threshold) {
+		// An outdated expiration could subsequently reset the notification state we apply here:
+		this.ensureExpirationUpToDate();
+
+		expirationNotifications.set(playerId, threshold);
+		this.markDirty();
+	}
+
+	// Removes the expiration notification state of players that are no longer shop members.
+	// Note: Owner changes reset the expiration and thereby already clear all notifications.
+	private void pruneExpirationNotifications() {
+		this.ensureExpirationUpToDate();
+
+		if (expirationNotifications.isEmpty()) {
+			return;
+		}
+
+		// Note: isMember also covers the shop owner.
+		boolean removed = expirationNotifications.removeIf(playerId -> {
+			return !this.isMember(playerId);
+		});
+		if (removed) {
+			this.markDirty();
+		}
+	}
+
+	@Override
+	public void expire() {
+		if (this.isHireable()) {
+			// The shop was previously for hire: Restore it to its for-hire state.
+			Log.info(this.getUniqueIdLogPrefix() + "Expired and restored to its for-hire state.");
+			this.setForHire();
+		} else {
+			Log.info(this.getUniqueIdLogPrefix() + "Expired and deleted.");
+			this.delete();
+		}
+	}
+
+	// CONTAINERS
+
+	// TODO Legacy single-container storage keys (chestx/y/z): Remove once no longer needed for the
+	// migration.
+	private static final Property<Integer> CONTAINER_X = new BasicProperty<Integer>()
 			.dataKeyAccessor("chestx", NumberSerializers.INTEGER)
 			.build();
-	public static final Property<Integer> CONTAINER_Y = new BasicProperty<Integer>()
+	private static final Property<Integer> CONTAINER_Y = new BasicProperty<Integer>()
 			.dataKeyAccessor("chesty", NumberSerializers.INTEGER)
 			.build();
-	public static final Property<Integer> CONTAINER_Z = new BasicProperty<Integer>()
+	private static final Property<Integer> CONTAINER_Z = new BasicProperty<Integer>()
 			.dataKeyAccessor("chestz", NumberSerializers.INTEGER)
 			.build();
-	public static final Property<BlockLocation> CONTAINER = new BasicProperty<BlockLocation>()
+	private static final Property<BlockLocation> CONTAINER = new BasicProperty<BlockLocation>()
 			.name("container")
 			.dataAccessor(new DataAccessor<BlockLocation>() {
 				@Override
@@ -533,9 +1186,9 @@ public abstract class AbstractPlayerShopkeeper
 						dataContainer.set(CONTAINER_Y, value.getY());
 						dataContainer.set(CONTAINER_Z, value.getZ());
 					} else {
-						dataContainer.set(CONTAINER_X, null);
-						dataContainer.set(CONTAINER_Y, null);
-						dataContainer.set(CONTAINER_Z, null);
+						dataContainer.set(CONTAINER_X.getUnvalidatedSaver(), null);
+						dataContainer.set(CONTAINER_Y.getUnvalidatedSaver(), null);
+						dataContainer.set(CONTAINER_Z.getUnvalidatedSaver(), null);
 					}
 				}
 
@@ -549,119 +1202,286 @@ public abstract class AbstractPlayerShopkeeper
 			})
 			.build();
 
-	private void loadContainer(ShopkeeperData shopkeeperData) throws InvalidDataException {
+	public static final Property<List<? extends ShopContainer>> CONTAINERS = new BasicProperty<List<? extends ShopContainer>>()
+			.dataKeyAccessor("containers", SKShopContainer.LIST_SERIALIZER)
+			.useDefaultIfMissing()
+			.defaultValue(Collections.emptyList())
+			.build();
+
+	private void loadContainers(ShopkeeperData shopkeeperData) throws InvalidDataException {
 		assert shopkeeperData != null;
-		this._setContainer(shopkeeperData.get(CONTAINER));
+		this._setContainers(shopkeeperData.get(CONTAINERS));
 	}
 
-	private void saveContainer(ShopkeeperData shopkeeperData) {
+	private void saveContainers(ShopkeeperData shopkeeperData) {
 		assert shopkeeperData != null;
-		shopkeeperData.set(CONTAINER, container);
-	}
-
-	private void protectContainer() {
-		ProtectedContainers protectedContainers = SKShopkeepersPlugin.getInstance().getProtectedContainers();
-		protectedContainers.addContainer(container, this);
-	}
-
-	private void unprotectContainer() {
-		ProtectedContainers protectedContainers = SKShopkeepersPlugin.getInstance().getProtectedContainers();
-		protectedContainers.removeContainer(container, this);
-	}
-
-	protected void _setContainer(int containerX, int containerY, int containerZ) {
-		this._setContainer(new BlockLocation(this.getWorldName(), containerX, containerY, containerZ));
-	}
-
-	protected void _setContainer(BlockLocation container) {
-		Validate.notNull(container, "container is null");
-		if (this.isValid()) {
-			// Disable the protection for the previous container:
-			this.unprotectContainer();
-		}
-
-		// Update the container:
-		// Ensure that the container's world matches the shopkeeper world:
-		BlockLocation newContainer = container;
-		String shopkeeperWorldName = this.getWorldName(); // Can be null for virtual shopkeepers
-		if (!Objects.equals(container.getWorldName(), shopkeeperWorldName)) {
-			MutableBlockLocation containerCopy = container.mutableCopy();
-			containerCopy.setWorldName(shopkeeperWorldName);
-			newContainer = containerCopy;
-		}
-
-		// Ensure that we store an immutable BlockLocation:
-		this.container = newContainer.immutable();
-
-		if (this.isValid()) {
-			// Enable the protection for the new container:
-			this.protectContainer();
-		}
+		shopkeeperData.set(CONTAINERS, containersView);
 	}
 
 	@Override
-	public int getContainerX() {
-		return container.getX();
+	public Collection<? extends SKShopContainer> getContainers() {
+		return containersView;
 	}
 
-	@Override
-	public int getContainerY() {
-		return container.getY();
-	}
-
-	@Override
-	public int getContainerZ() {
-		return container.getZ();
-	}
-
-	public BlockLocation getContainerLocation() {
-		return container;
-	}
-
-	@Override
-	public void setContainer(int containerX, int containerY, int containerZ) {
-		this._setContainer(containerX, containerY, containerZ);
-		this.markDirty();
-	}
-
-	@Override
-	public @Nullable Block getContainer() {
-		return container.getBlock();
-	}
-
-	// Returns null if the container could not be found.
-	public @Nullable Inventory getContainerInventory() {
-		Block container = this.getContainer();
-		if (container != null && ShopContainers.isSupportedContainer(container.getType())) {
-			return ShopContainers.getInventory(container); // Not null
+	// Returns null if this shopkeeper has no container at the given location.
+	private @Nullable SKShopContainer getContainer(BlockLocation location) {
+		Validate.notNull(location, "location is null");
+		for (SKShopContainer container : containers) {
+			if (container.getLocation().equals(location)) {
+				return container;
+			}
 		}
 		return null;
 	}
 
-	// Returns an empty array if the container could not be found.
-	public @Nullable ItemStack[] getContainerContents() {
-		Inventory containerInventory = this.getContainerInventory();
-		if (containerInventory == null) {
-			// Container not found:
-			return InventoryUtils.emptyItemStackArray();
-		} else {
-			return Unsafe.cast(containerInventory.getContents()); // Not null
+	private void protectContainers() {
+		var protectedContainers = SKShopkeepersPlugin.getInstance().getProtectedContainers();
+		for (SKShopContainer container : containers) {
+			protectedContainers.addContainer(container.getLocation(), this);
+		}
+	}
+
+	private void unprotectContainers() {
+		var protectedContainers = SKShopkeepersPlugin.getInstance().getProtectedContainers();
+		for (SKShopContainer container : containers) {
+			protectedContainers.removeContainer(container.getLocation(), this);
+		}
+	}
+
+	protected void _setContainers(List<? extends ShopContainer> containers) {
+		Validate.notNull(containers, "containers is null");
+		for (ShopContainer container : containers) {
+			Validate.notNull(container, "container is null");
+			Validate.isTrue(container instanceof SKShopContainer,
+					"Container is not of type SKShopContainer!");
+		}
+
+		// Disable the protection for the previous containers:
+		if (this.isValid()) {
+			this.unprotectContainers();
+		}
+
+		this.containers.clear();
+		for (ShopContainer container : containers) {
+			this.containers.add((SKShopContainer) container);
+		}
+
+		// Enable the protection for the new containers:
+		if (this.isValid()) {
+			this.protectContainers();
 		}
 	}
 
 	@Override
-	public int getCurrencyInContainer() {
-		int totalCurrency = 0;
-		// Empty if the container is not found:
-		@Nullable ItemStack[] contents = this.getContainerContents();
-		for (ItemStack itemStack : contents) {
-			if (itemStack == null) continue;
-			Currency currency = Currencies.match(itemStack);
-			if (currency != null) {
-				totalCurrency += (itemStack.getAmount() * currency.getValue());
+	public ShopContainer addContainer(
+			String worldName,
+			int containerX,
+			int containerY,
+			int containerZ,
+			ShopContainerType type
+	) {
+		Validate.notEmpty(worldName, "worldName is null or empty");
+		Validate.notNull(type, "type is null");
+		var location = new BlockLocation(worldName, containerX, containerY, containerZ);
+		Validate.isTrue(this.getContainer(location) == null,
+				"There is already a container at this location!");
+
+		List<SKShopContainer> newContainers = new ArrayList<>(containers);
+		var container = new SKShopContainer(location, type);
+		newContainers.add(container);
+		this._setContainers(newContainers);
+		this.markDirty();
+
+		return container;
+	}
+
+	@Override
+	public void removeContainer(
+			String worldName,
+			int containerX,
+			int containerY,
+			int containerZ
+	) {
+		Validate.notEmpty(worldName, "worldName is null or empty");
+		var location = new BlockLocation(worldName, containerX, containerY, containerZ);
+		var container = this.getContainer(location);
+		if (container == null) return;
+
+		List<SKShopContainer> newContainers = new ArrayList<>(containers);
+		newContainers.remove(container);
+		this._setContainers(newContainers);
+		this.markDirty();
+	}
+
+	/**
+	 * Updates the container at the given location, i.e. its {@link ShopContainerType type}.
+	 * <p>
+	 * Unlike removing and re-adding the container, this preserves the container's position in the
+	 * container list.
+	 * 
+	 * @param location
+	 *            the container's location, not <code>null</code>
+	 * @param type
+	 *            the {@link ShopContainerType}, or <code>null</code> to preserve the current type
+	 * @throws IllegalArgumentException
+	 *             if there is no container at the given location
+	 */
+	public void updateContainer(BlockLocation location, @Nullable ShopContainerType type) {
+		Validate.notNull(location, "location is null");
+		var container = this.getContainer(location);
+		if (container == null) {
+			throw new IllegalArgumentException("There is no container at the given location!");
+		}
+
+		// Note: The container location stays the same, so there is no need to update the container
+		// protections.
+
+		// Update the container, preserving its position within the container list:
+		var index = containers.indexOf(container);
+		assert index >= 0 && index < containers.size();
+		var newType = (type == null) ? container.getType() : type;
+		containers.set(index, container.withType(newType));
+		this.markDirty();
+	}
+
+	@Deprecated
+	@Override
+	public int getContainerX() {
+		return this.getFirstContainerLocation().getX();
+	}
+
+	@Deprecated
+	@Override
+	public int getContainerY() {
+		return this.getFirstContainerLocation().getY();
+	}
+
+	@Deprecated
+	@Override
+	public int getContainerZ() {
+		return this.getFirstContainerLocation().getZ();
+	}
+
+	// Returns null if this shopkeeper currently has no containers.
+	private @Nullable SKShopContainer getFirstContainer() {
+		return CollectionUtils.getFirstOrNull(containers);
+	}
+
+	// Returns the first container's location, or BlockLocation#EMPTY if there are no containers.
+	private BlockLocation getFirstContainerLocation() {
+		SKShopContainer firstContainer = this.getFirstContainer();
+		return firstContainer != null ? firstContainer.getLocation() : BlockLocation.EMPTY;
+	}
+
+	@Deprecated
+	@Override
+	public void setContainer(int containerX, int containerY, int containerZ) {
+		SKShopContainer firstContainer = this.getFirstContainer();
+		if (firstContainer == null) {
+			// The shop has no containers yet: Add a new container at the given coordinates, using
+			// the shopkeeper's world.
+			// Error if the shopkeeper has no world (e.g. virtual shops).
+			var worldName = this.getWorldName();
+			Validate.notNull(worldName, "Cannot add container without a world!");
+			assert worldName != null;
+			this.addContainer(
+					worldName,
+					containerX,
+					containerY,
+					containerZ,
+					DefaultShopContainerTypes.STOCK_AND_EARNINGS()
+			);
+			return;
+		}
+
+		// Update the coordinates of the first container:
+		var location = new BlockLocation(firstContainer.getWorldName(), containerX, containerY, containerZ);
+		List<SKShopContainer> newContainers = new ArrayList<>(containers);
+		newContainers.set(0, new SKShopContainer(location, firstContainer.getType()));
+		this._setContainers(newContainers);
+		this.markDirty();
+	}
+
+	@Deprecated
+	@Override
+	public @Nullable Block getContainer() {
+		return this.getFirstContainerLocation().getBlock();
+	}
+
+	@Override
+	public @Nullable ItemStack[] getStockContainerContents() {
+		return this.getContainerContents(true);
+	}
+
+	@Override
+	public @Nullable ItemStack[] getEarningsContainerContents() {
+		return this.getContainerContents(false);
+	}
+
+	// Returns the combined contents of all stock or earnings containers.
+	// The returned array is only meant to be read (e.g. to search or count items), not written
+	// back. It may (or may not) skip empty item stacks.
+	private @Nullable ItemStack[] getContainerContents(boolean stock) {
+		if (containers.isEmpty()) {
+			return InventoryUtils.emptyItemStackArray();
+		}
+
+		// Fast path for a single container: Return its contents directly (avoids array copy).
+		if (containers.size() == 1) {
+			ShopContainer container = containers.get(0);
+			var type = container.getType();
+			if (stock ? type.isStock() : type.isEarnings()) {
+				Inventory containerInventory = container.getInventory();
+				if (containerInventory != null) {
+					return Unsafe.cast(containerInventory.getContents());
+				}
+			}
+
+			return InventoryUtils.emptyItemStackArray();
+		}
+
+		// Combine the contents of all matching containers, skipping empty item stacks to keep the
+		// returned array (and the downstream iteration) smaller:
+		List<@Nullable ItemStack> contents = new ArrayList<>();
+		// The already processed inventories, to filter out overlapping container inventories:
+		List<Inventory> processedInventories = new ArrayList<>(containers.size());
+		for (ShopContainer container : containers) {
+			var type = container.getType();
+			if (stock ? !type.isStock() : !type.isEarnings()) continue;
+
+			Inventory containerInventory = container.getInventory();
+			if (containerInventory == null) continue;
+
+			// Skip containers that share their inventory with an already processed container (e.g.
+			// both sides of a double chest):
+			var isDuplicateInventory = false;
+			for (Inventory processedInventory : processedInventories) {
+				if (InventoryUtils.isSameInventory(processedInventory, containerInventory)) {
+					isDuplicateInventory = true;
+					break;
+				}
+			}
+			if (isDuplicateInventory) {
+				continue;
+			}
+
+			processedInventories.add(containerInventory);
+
+			for (ItemStack itemStack : containerInventory.getContents()) {
+				if (ItemUtils.isEmpty(itemStack)) continue;
+
+				contents.add(itemStack);
 			}
 		}
-		return totalCurrency;
+
+		return contents.toArray(new @Nullable ItemStack[0]);
+	}
+
+	@Override
+	public int getCurrencyInContainer() {
+		// Empty if no stock containers are found:
+		@Nullable ItemStack[] contents = this.getStockContainerContents();
+		return CurrencyInventoryUtils.countCurrency(contents);
 	}
 
 	// Returns null (and logs a warning) if the price cannot be represented correctly by currency
@@ -757,19 +1577,49 @@ public abstract class AbstractPlayerShopkeeper
 		return this.openWindow(DefaultUITypes.HIRING(), player);
 	}
 
+	@Deprecated
 	@Override
 	public boolean openContainerWindow(Player player) {
-		// Check if the container still exists:
-		Inventory containerInventory = this.getContainerInventory();
-		if (containerInventory == null) {
+		var firstContainer = this.getFirstContainer();
+		if (firstContainer == null) {
 			Log.debug(() -> "Cannot open container inventory for player '" + player.getName()
-					+ "': The block is no longer a valid container!");
+					+ "': The shop has no container!");
 			return false;
 		}
 
-		Log.debug(() -> "Opening container inventory for player '" + player.getName() + "'.");
-		// Open the container directly for the player (no need for a custom UI):
-		return player.openInventory(containerInventory) != null;
+		return firstContainer.openInventoryView(player);
+	}
+
+	@Override
+	public boolean openMembersEditorWindow(Player player) {
+		return this.openWindow(DefaultUITypes.SHOP_MEMBERS_EDITOR(), player);
+	}
+
+	@Override
+	public boolean openContainersEditorWindow(Player player) {
+		return this.openWindow(DefaultUITypes.SHOP_CONTAINERS_EDITOR(), player);
+	}
+
+	@Override
+	public boolean closeView(Player player) {
+		if (super.closeView(player)) {
+			return true;
+		}
+
+		// Close any views for the shop containers:
+		var openInventoryView = player.getOpenInventory();
+		var inventoryBlock = InventoryUtils.getBlock(openInventoryView.getTopInventory());
+		if (inventoryBlock != null) {
+			var shopkeepersUsingBlock = SKShopkeepersPlugin.getInstance()
+					.getProtectedContainers()
+					.getShopkeepersUsingContainer(inventoryBlock);
+			if (shopkeepersUsingBlock.contains(this)) {
+				openInventoryView.close();
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	// EDITOR
@@ -790,20 +1640,21 @@ public abstract class AbstractPlayerShopkeeper
 		super.onTick();
 	}
 
-	// Deletes the shopkeeper if the container is no longer present (e.g. if it got removed
-	// externally by another plugin, such as WorldEdit, etc.):
+	// Deletes the shopkeeper if none of its containers are present anymore (e.g. if they got
+	// removed externally by another plugin, such as WorldEdit, etc.):
+	// While there is still at least one container remaining, broken containers are kept in the
+	// container list (they show up as "missing" in the editor).
 	private void onTickCheckDeleteIfContainerBroken() {
 		if (!Settings.deleteShopkeeperOnBreakContainer) return;
 		if (!checkContainerLimiter.request()) {
 			return;
 		}
 
-		// This checks if the block is still a valid container:
-		Block containerBlock = this.getContainer();
-		if (containerBlock != null && !ShopContainers.isSupportedContainer(containerBlock.getType())) {
-			// Note: If this shopkeeper is deleted due to the chest having been broken, we will
-			// trigger a delayed save after the ticking of the shopkeepers.
-			SKShopkeepersPlugin.getInstance().getRemoveShopOnContainerBreak().handleBlockBreakage(containerBlock);
-		}
+		// Delete the shopkeeper if none of its containers are valid anymore (all of its containers
+		// are broken, or it has no containers at all, e.g. after they were removed via the API).
+		// Note: If this shopkeeper is deleted here, we will trigger a delayed save after the
+		// ticking of the shopkeepers.
+		SKShopkeepersPlugin.getInstance().getRemoveShopOnContainerBreak()
+				.deleteShopIfContainersBroken(this);
 	}
 }

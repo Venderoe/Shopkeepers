@@ -89,7 +89,7 @@ class UIListener implements Listener {
 	// listener and accounted for in the eventHandlerStack, our newly registered event handlers
 	// won't be called yet for this particular event instance, not even during the late event
 	// priority phase.
-	void registerEventType(Class<? extends InventoryEvent> eventClass) {
+	synchronized void registerEventType(Class<? extends InventoryEvent> eventClass) {
 		Validate.notNull(eventClass, "eventClass is null");
 		if (handledEventTypes.contains(eventClass)) return; // Already handled
 		Class<? extends Event> registrationClass = EventUtils.getEventRegistrationClass(eventClass);

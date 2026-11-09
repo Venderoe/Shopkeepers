@@ -52,9 +52,6 @@ buildSpigotIfMissing() {
 # We only re-build CraftBukkit/Spigot versions that are missing in the Maven cache.
 # Add entries here for every required version of CraftBukkit/Spigot.
 
-# The following versions require JDK 21 to build:
-source installJDK.sh 21
-
 # Optional argument 'minimal': Only builds the api and main projects, which only depend on the
 # lowest supported Spigot version. So we can skip the building of later Spigot versions.
 # TODO: Removed again. For some reason Jitpack does not find our build artifacts if we build any
@@ -66,16 +63,9 @@ source installJDK.sh 21
 #    exit 0
 #fi
 
-buildSpigotIfMissing 1.21.5 R0.1 remapped
-buildSpigotIfMissing 1.21.6 R0.1 remapped
-# Note: 1.21.7 was replaced by 1.21.8 and can no longer be built. But the server is identical to 1.21.8.
-buildSpigotIfMissing 1.21.8 R0.1 remapped
-buildSpigotIfMissing 1.21.10 R0.1 remapped
-buildSpigotIfMissing 1.21.11 R0.2 remapped
-
 # The following versions require JDK 25 to build:
 source installJDK.sh 25
 
-buildSpigotIfMissing 26.1.2 R0.1
+buildSpigotIfMissing 26.3 R0.1
 
 popd

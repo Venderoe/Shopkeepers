@@ -69,27 +69,30 @@ class ServerMock extends ProxyHandler<Server> {
 		// Set up resource manager:
 		MultiPackResourceManager resourceManager = new MultiPackResourceManager(
 				PackType.SERVER_DATA,
-				packRepository.getAvailablePacks().stream().map(Pack::open).toList()
+				packRepository.getAvailablePacks().stream().flatMap(Pack::open).toList()
 		);
 		LayeredRegistryAccess<RegistryLayer> layers = Unsafe.castNonNull(RegistryLayer.createRegistryAccess());
 		List<PendingTags<?>> tags = Unsafe.castNonNull(TagLoader.loadTagsForExistingRegistries(
 				resourceManager,
 				layers.getLayer(RegistryLayer.STATIC)
 		));
-		RegistryAccess.Frozen worldgenAccess = layers.getAccessForLoading(RegistryLayer.WORLDGEN);
+		RegistryAccess.Frozen worldgenAccess = layers.getAccessForLoading(RegistryLayer.WORLD);
 		List<RegistryLookup<?>> lookups = Unsafe.castNonNull(
 				TagLoader.buildUpdatedLookups(worldgenAccess, Unsafe.castNonNull(tags))
 		);
 		RegistryAccess.Frozen loadedWorldgen = RegistryDataLoader.load(
 				resourceManager,
 				Unsafe.castNonNull(lookups),
-				RegistryDataLoader.WORLDGEN_REGISTRIES,
+				RegistryDataLoader.WORLD_REGISTRIES,
 				Runnable::run
 		).join();
 		layers = Unsafe.castNonNull(
-				layers.replaceFrom(RegistryLayer.WORLDGEN, loadedWorldgen)
+				layers.replaceFrom(RegistryLayer.WORLD, loadedWorldgen)
 		);
 		REGISTRY_CUSTOM = Unsafe.castNonNull(layers.compositeAccess().freeze());
+		BuiltInRegistries.DATA_COMPONENT_INITIALIZERS.build(REGISTRY_CUSTOM)
+				.forEach(components -> components.apply());
+		tags.forEach(pendingTags -> pendingTags.apply());
 
 		// Set up the server mock as Bukkit API provider:
 		Server serverMock = new ServerMock().newProxy();

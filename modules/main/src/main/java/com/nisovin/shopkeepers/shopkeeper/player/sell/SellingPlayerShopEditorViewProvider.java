@@ -43,12 +43,13 @@ public class SellingPlayerShopEditorViewProvider extends PlayerShopEditorViewPro
 				recipes.add(recipe);
 			});
 
-			// Add new empty recipe drafts for items from the container without existing offer:
+			// Add new empty recipe drafts for items from the stock containers without existing
+			// offer:
 			// We only add one recipe per similar item:
 			List<ItemStack> newRecipes = new ArrayList<>();
-			// Empty if the container is not found:
-			@Nullable ItemStack[] containerContents = shopkeeper.getContainerContents();
-			for (ItemStack containerItem : containerContents) {
+			// Empty if no stock containers are found:
+			@Nullable ItemStack[] stockContainerContents = shopkeeper.getStockContainerContents();
+			for (ItemStack containerItem : stockContainerContents) {
 				// Ignore empty ItemStacks:
 				if (containerItem == null) continue;
 				if (ItemUtils.isEmpty(containerItem)) continue;
@@ -94,7 +95,7 @@ public class SellingPlayerShopEditorViewProvider extends PlayerShopEditorViewPro
 		@Override
 		protected @Nullable PriceOffer createOffer(TradingRecipeDraft recipe) {
 			assert recipe != null && recipe.isValid();
-			int price = getPrice(shopkeeper, recipe);
+			int price = getSellingRecipePrice(shopkeeper, recipe);
 			if (price <= 0) {
 				// Unexpected.
 				return null; // Ignore invalid recipe

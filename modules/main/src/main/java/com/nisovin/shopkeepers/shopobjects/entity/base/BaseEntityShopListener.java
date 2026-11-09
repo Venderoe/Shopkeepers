@@ -14,12 +14,14 @@ import org.bukkit.event.EventPriority;
 import org.bukkit.event.HandlerList;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockIgniteEvent;
+import org.bukkit.event.block.BlockShearEntityEvent;
 import org.bukkit.event.block.EntityBlockFormEvent;
 import org.bukkit.event.entity.EntityChangeBlockEvent;
 import org.bukkit.event.entity.EntityCombustByBlockEvent;
 import org.bukkit.event.entity.EntityCombustEvent;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDamageEvent;
+import org.bukkit.event.entity.EntityDeathEvent;
 import org.bukkit.event.entity.EntityDropItemEvent;
 import org.bukkit.event.entity.EntityExplodeEvent;
 import org.bukkit.event.entity.EntityMountEvent;
@@ -81,9 +83,15 @@ class BaseEntityShopListener implements Listener {
 	// Key: Player id
 	private final Map<UUID, EntityInteraction> lastEntityInteractions = new HashMap<>();
 
-	BaseEntityShopListener(SKShopkeepersPlugin plugin) {
+	// Tries to detect players left clicking entities.
+	// Only used if left click interactions are enabled in the config, and only on Spigot servers:
+	// For Paper, we have a different implementation in the Paper-specific module.
+	private final PlayerLeftClickEntityListener playerLeftClickEntityListener;
+
+	BaseEntityShopListener(SKShopkeepersPlugin plugin, BaseEntityShops entityShops) {
 		this.plugin = plugin;
 		this.shopkeeperRegistry = plugin.getShopkeeperRegistry();
+		this.playerLeftClickEntityListener = new PlayerLeftClickEntityListener(plugin, entityShops);
 	}
 
 	void onEnable() {
@@ -102,10 +110,14 @@ class BaseEntityShopListener implements Listener {
 				EventPriority.LOWEST,
 				plugin
 		);
+
+		playerLeftClickEntityListener.onEnable();
 	}
 
 	void onDisable() {
 		HandlerList.unregisterAll(this);
+
+		playerLeftClickEntityListener.onDisable();
 	}
 
 	// We want to bypass other plugins by default, so that shops can also be opened in protected
@@ -202,12 +214,22 @@ class BaseEntityShopListener implements Listener {
 			return;
 		}
 
+		this.handleShopkeeperInteraction(player, clickedEntity, shopkeeper);
+	}
+
+	private void handleShopkeeperInteraction(
+			Player player,
+			Entity clickedEntity,
+			AbstractShopkeeper shopkeeper
+	) {
 		// The PlayerInteractAtEntityEvent gets sometimes called additionally to the
 		// PlayerInteractEntityEvent. We only want to handle the interaction once.
 		// However, for certain entities, e.g. armor stands, we only receive the
 		// PlayerInteractAtEntityEvent, so we cannot simply ignore this event type.
 		// We remember the last entity interaction for each player and cancel but ignore the event
 		// if we already handled an interaction with the same entity recently.
+		// This also covers left click interactions, which we might receive in addition to a normal
+		// interaction.
 		var lastEntityInteraction = lastEntityInteractions.computeIfAbsent(
 				player.getUniqueId(),
 				playerId -> new EntityInteraction()
@@ -233,6 +255,25 @@ class BaseEntityShopListener implements Listener {
 	@EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = false)
 	void onEntityInteractAt(PlayerInteractAtEntityEvent event) {
 		this.onEntityInteract(event);
+	}
+
+	// Only called if "enable-left-click-interaction" is enabled:
+	boolean onPlayerLeftClickEntity(Player player, Entity entity) {
+		// If the clicked entity is a complex entity part, we continue with its parent:
+		Entity clickedEntity = EntityUtils.resolveComplexEntity(entity);
+
+		Log.debug(() -> "Player " + player.getName() + " is left clicking "
+				+ clickedEntity.getType() + " at " + clickedEntity.getLocation());
+
+		// Also checks for Citizens NPC shopkeepers:
+		AbstractShopkeeper shopkeeper = shopkeeperRegistry.getShopkeeperByEntity(clickedEntity);
+		if (shopkeeper == null) {
+			Log.debug("  Non-shopkeeper");
+			return false;
+		}
+
+		this.handleShopkeeperInteraction(player, clickedEntity, shopkeeper);
+		return true;
 	}
 
 	@EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
@@ -385,6 +426,19 @@ class BaseEntityShopListener implements Listener {
 		}
 	}
 
+	// Shopkeeper entities are not expected to die, since we cancel all damage. This cancellation
+	// also applies to Minecraft's built-in kill and damage commands. However, they might still be
+	// killed directly, e.g. by other plugins.
+	// Prevent any item and experience drops in this case, e.g. of their equipment or loot.
+	// Example: Without this, fox shopkeepers would always drop the item in their mouth on death.
+	@EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
+	void onEntityDeath(EntityDeathEvent event) {
+		if (shopkeeperRegistry.isShopkeeper(event.getEntity())) {
+			event.getDrops().clear();
+			event.setDroppedExp(0);
+		}
+	}
+
 	// Prevent shopkeeper entities from getting set on fire (e.g. monsters in daylight).
 	@EventHandler(priority = EventPriority.LOW, ignoreCancelled = true)
 	void onEntityCombustEvent(EntityCombustEvent event) {
@@ -403,6 +457,13 @@ class BaseEntityShopListener implements Listener {
 	void onBlockIgnited(BlockIgniteEvent event) {
 		var entity = event.getIgnitingEntity();
 		if (entity != null && shopkeeperRegistry.isShopkeeper(entity)) {
+			event.setCancelled(true);
+		}
+	}
+
+	@EventHandler()
+	void onBlockShearEntity(BlockShearEntityEvent event) {
+		if (shopkeeperRegistry.isShopkeeper(event.getEntity())) {
 			event.setCancelled(true);
 		}
 	}

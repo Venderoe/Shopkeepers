@@ -32,15 +32,12 @@ import com.nisovin.shopkeepers.api.trading.TradeEffect;
 import com.nisovin.shopkeepers.api.util.UnmodifiableItemStack;
 import com.nisovin.shopkeepers.compat.Compat;
 import com.nisovin.shopkeepers.config.Settings;
-import com.nisovin.shopkeepers.currency.Currencies;
-import com.nisovin.shopkeepers.currency.Currency;
 import com.nisovin.shopkeepers.debug.Debug;
 import com.nisovin.shopkeepers.debug.DebugOptions;
 import com.nisovin.shopkeepers.lang.Messages;
 import com.nisovin.shopkeepers.ui.lib.UIState;
 import com.nisovin.shopkeepers.ui.lib.View;
 import com.nisovin.shopkeepers.util.annotations.ReadOnly;
-import com.nisovin.shopkeepers.util.annotations.ReadWrite;
 import com.nisovin.shopkeepers.util.bukkit.ConfigUtils;
 import com.nisovin.shopkeepers.util.bukkit.MerchantUtils;
 import com.nisovin.shopkeepers.util.bukkit.TextUtils;
@@ -59,6 +56,13 @@ public class TradingView extends View {
 	protected static final int BUY_ITEM_1_SLOT_ID = 0;
 	protected static final int BUY_ITEM_2_SLOT_ID = 1;
 	protected static final int RESULT_ITEM_SLOT_ID = 2;
+
+	// Whether a trade has been prepared but not yet ended, i.e. neither completed nor aborted:
+	// This is used to detect a previously failed but not properly cleaned up trading state during
+	// subsequent trade attempts, likely caused by a bug. When detected, we abort the subsequent
+	// trade attempt in order to prevent continuing in an unexpected state that players could abuse,
+	// e.g. to duplicate items.
+	private boolean tradePrepared = false;
 
 	public TradingView(TradingViewProvider provider, Player player, UIState uiState) {
 		super(provider, player, uiState);
@@ -188,7 +192,7 @@ public class TradingView extends View {
 	// or adding trades, is fine. But reducing the number of trades is not safe, because the index
 	// of the currently selected recipe can end up being out of bounds on the client. There is no
 	// way for us to remotely update it into valid bounds.
-	// TODO Check if this still applies in MC 1.14+
+	// TODO Check if this still applies in MC 1.14+ (MC 26.3 also has made changes in this area)
 	// We therefore insert blocked dummy trades to retain the previous recipe count. We could insert
 	// empty dummy trades at the end of the recipe list, but that might confuse players since empty
 	// trades are rather unusual. Instead we try to (heuristically) determine the recipes that were
@@ -391,6 +395,7 @@ public class TradingView extends View {
 				}
 
 				if (!this.finalTradePreparation(trade)) {
+					this.onTradeAborted(tradingContext, false);
 					return;
 				}
 
@@ -451,6 +456,7 @@ public class TradingView extends View {
 					}
 
 					if (!this.finalTradePreparation(trade)) {
+						this.onTradeAborted(tradingContext, false);
 						return;
 					}
 
@@ -527,7 +533,8 @@ public class TradingView extends View {
 				}
 
 				if (!this.finalTradePreparation(trade)) {
-					return;
+					this.onTradeAborted(tradingContext, false);
+					break;
 				}
 
 				// We are going to apply the trade now:
@@ -799,7 +806,7 @@ public class TradingView extends View {
 	private boolean handleTrade(Trade trade) {
 		assert trade != null;
 		// Shopkeeper-specific checks and preparation:
-		if (!this.prepareTrade(trade)) {
+		if (!this.internalPrepareTrade(trade)) {
 			// The trade got cancelled for some shopkeeper-specific reason:
 			this.onTradeAborted(trade.getTradingContext(), false);
 			return false;
@@ -905,7 +912,18 @@ public class TradingView extends View {
 				+ ") by " + player.getName() + ": " + ItemUtils.getSimpleRecipeInfo(tradingRecipe));
 
 		this.onTradeCompleted(trade);
-		this.onTradeOver(trade.getTradingContext());
+		this.internalOnTradeOver(trade.getTradingContext());
+	}
+
+	private boolean internalPrepareTrade(Trade trade) {
+		if (tradePrepared) {
+			throw new IllegalStateException(this.getContext().getLogPrefix() + "Trade aborted!"
+					+ " A previously prepared trade was not properly cleaned up."
+					+ " This is likely a bug! Please report this issue to the plugin author(s).");
+		}
+
+		tradePrepared = true;
+		return this.prepareTrade(trade);
 	}
 
 	/**
@@ -1005,7 +1023,7 @@ public class TradingView extends View {
 			Settings.tradeFailedSound.play(tradingContext.getTradingPlayer());
 		}
 
-		this.onTradeOver(tradingContext);
+		this.internalOnTradeOver(tradingContext);
 	}
 
 	/**
@@ -1063,6 +1081,13 @@ public class TradingView extends View {
 		// Callback for subclasses.
 	}
 
+	private void internalOnTradeOver(TradingContext tradingContext) {
+		this.onTradeOver(tradingContext);
+
+		// Only reset if onTradeOver completes successfully (without throwing):
+		tradePrepared = false;
+	}
+
 	/**
 	 * Called after a trade attempt has been either aborted or completed.
 	 * <p>
@@ -1095,61 +1120,5 @@ public class TradingView extends View {
 	) {
 		Object itemStackData = (itemStack != null) ? itemStack : "<empty>";
 		Log.debug(ConfigUtils.toConfigYamlWithoutTrailingNewline(itemStackName, itemStackData));
-	}
-
-	// SHARED HELPERS
-
-	// Returns a value >= 0 and <= amount.
-	// Note: Depending on the configuration, the amount can end up 0.
-	protected int getAmountAfterTaxes(int amount) {
-		assert amount >= 0;
-		if (Settings.taxRate == 0) return amount;
-
-		int taxes;
-		if (Settings.taxRoundUp) {
-			taxes = (int) Math.ceil(amount * (Settings.taxRate / 100.0D));
-		} else {
-			taxes = (int) Math.floor(amount * (Settings.taxRate / 100.0D));
-		}
-		return Math.max(0, Math.min(amount - taxes, amount));
-	}
-
-	// Returns the amount of items that couldn't be added, or 0 on success.
-	protected int addReceivedItem(
-			@ReadOnly @Nullable ItemStack @ReadWrite [] contents,
-			@Nullable UnmodifiableItemStack receivedItem
-	) {
-		if (ItemUtils.isEmpty(receivedItem)) return 0;
-		assert receivedItem != null;
-
-		int amountAfterTaxes = this.getAmountAfterTaxes(receivedItem.getAmount());
-		if (amountAfterTaxes <= 0) return 0;
-
-		return InventoryUtils.addItems(contents, receivedItem, amountAfterTaxes);
-	}
-
-	protected int addCurrencyItems(@ReadOnly @Nullable ItemStack @ReadWrite [] contents, int amount) {
-		if (amount <= 0) return 0;
-
-		int remaining = amount;
-		// TODO Always store the currency in the most compressed form possible, regardless of
-		// 'highCurrencyMinCost'?
-		if (Currencies.isHighCurrencyEnabled() && remaining > Settings.highCurrencyMinCost) {
-			Currency highCurrency = Currencies.getHigh();
-			// Note: This rounds down, so the remaining amount cannot end up negative after
-			// subtracting the high currency value.
-			int highCurrencyAmount = (remaining / highCurrency.getValue());
-			if (highCurrencyAmount > 0) {
-				ItemStack currencyItems = Currencies.getHigh().getItemData().createItemStack(highCurrencyAmount);
-				int remainingHighCurrency = InventoryUtils.addItems(contents, currencyItems);
-				assert remainingHighCurrency >= 0 && remainingHighCurrency <= highCurrencyAmount;
-				remaining -= (highCurrencyAmount - remainingHighCurrency) * highCurrency.getValue();
-				assert remaining >= 0;
-				if (remaining <= 0) return 0;
-			}
-		}
-
-		ItemStack currencyItems = Currencies.getBase().getItemData().createItemStack(remaining);
-		return InventoryUtils.addItems(contents, currencyItems);
 	}
 }

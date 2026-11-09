@@ -189,6 +189,9 @@ public class SKLivingShopObject<E extends LivingEntity>
 		// Disable aging and breeding:
 		if (entity instanceof Ageable ageable) {
 			ageable.setAdult();
+			// TODO SPIGOT-8139. Not deprecated on Paper and for example relevant for SulfurCubes.
+			// Still available on Spigot, so not an issue to call:
+			ageable.setAgeLock(true);
 		}
 
 		if (entity instanceof Breedable breedable) {
@@ -469,12 +472,13 @@ public class SKLivingShopObject<E extends LivingEntity>
 	private Button getEquipmentEditorButton() {
 		return new ShopkeeperActionButton() {
 			@Override
-			public @Nullable ItemStack getIcon(EditorView editorView) {
+			public @Nullable ItemStack getIcon() {
 				return getEquipmentEditorItem();
 			}
 
 			@Override
-			protected boolean runAction(EditorView editorView, InventoryClickEvent clickEvent) {
+			protected boolean runAction(InventoryClickEvent clickEvent) {
+				EditorView editorView = this.getEditorView();
 				editorView.closeDelayedAndRunTask(() -> {
 					openEquipmentEditor(editorView.getPlayer(), false);
 				});
@@ -482,7 +486,7 @@ public class SKLivingShopObject<E extends LivingEntity>
 			}
 
 			@Override
-			protected void onActionSuccess(EditorView editorView, InventoryClickEvent clickEvent) {
+			protected void onActionSuccess(InventoryClickEvent clickEvent) {
 				// The button only opens the equipment editor: Skip the ShopkeeperEditedEvent and
 				// saving.
 			}

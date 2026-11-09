@@ -375,12 +375,9 @@ class CreateListener implements Listener {
 					// Reset selected container:
 					containerSelection.selectContainer(player, null);
 
-					// Manually remove creation item from player's hand after this event is
-					// processed:
-					SchedulerUtils.runEntityTaskOrOmit(plugin, player, () -> {
-						ItemStack newItemInMainHand = ItemUtils.decreaseItemAmount(itemInHand, 1);
-						player.getInventory().setItemInMainHand(newItemInMainHand);
-					});
+					// Remove the shop creation item from player's hand:
+					ItemStack newItemInMainHand = ItemUtils.decreaseItemAmount(itemInHand, 1);
+					player.getInventory().setItemInMainHand(newItemInMainHand);
 				}
 			}
 		}

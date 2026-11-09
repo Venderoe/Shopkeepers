@@ -173,12 +173,12 @@ public class MannequinShop extends SKLivingShopObject<LivingEntity> {
 	private Button getMainHandEditorButton() {
 		return new ShopkeeperActionButton() {
 			@Override
-			public @Nullable ItemStack getIcon(EditorView editorView) {
+			public @Nullable ItemStack getIcon() {
 				return getMainHandEditorItem();
 			}
 
 			@Override
-			protected boolean runAction(EditorView editorView, InventoryClickEvent clickEvent) {
+			protected boolean runAction(InventoryClickEvent clickEvent) {
 				boolean backwards = clickEvent.isRightClick();
 				cycleMainHand(backwards);
 				return true;
@@ -225,12 +225,12 @@ public class MannequinShop extends SKLivingShopObject<LivingEntity> {
 	private Button getPoseEditorButton() {
 		return new ShopkeeperActionButton() {
 			@Override
-			public @Nullable ItemStack getIcon(EditorView editorView) {
+			public @Nullable ItemStack getIcon() {
 				return getPoseEditorItem();
 			}
 
 			@Override
-			protected boolean runAction(EditorView editorView, InventoryClickEvent clickEvent) {
+			protected boolean runAction(InventoryClickEvent clickEvent) {
 				boolean backwards = clickEvent.isRightClick();
 				cyclePose(backwards);
 				return true;
@@ -256,24 +256,24 @@ public class MannequinShop extends SKLivingShopObject<LivingEntity> {
 	}
 
 	private ItemStack getProfileEditorItem() {
-		ItemStack iconItem = new ItemStack(Material.PLAYER_HEAD);
-		ItemUtils.setDisplayNameAndLore(
-				iconItem,
+		return ItemUtils.setDisplayNameAndLore(
+				ItemUtils.getSkull_MHF_Alex(),
 				Messages.buttonMannequinProfile,
 				Messages.buttonMannequinProfileLore
 		);
-		return iconItem;
 	}
 
 	private Button getProfileEditorButton() {
 		return new ShopkeeperActionButton() {
 			@Override
-			public @Nullable ItemStack getIcon(EditorView editorView) {
+			public @Nullable ItemStack getIcon() {
 				return getProfileEditorItem();
 			}
 
 			@Override
-			protected boolean runAction(EditorView editorView, InventoryClickEvent clickEvent) {
+			protected boolean runAction(InventoryClickEvent clickEvent) {
+				EditorView editorView = this.getEditorView();
+
 				// Also triggers a save:
 				editorView.closeDelayed();
 

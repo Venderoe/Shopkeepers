@@ -82,6 +82,13 @@ public interface CompatProvider {
 		return true;
 	}
 
+	// Paper 26.2 has deprecated the PigZapEvent in favor of the Paper-specific EntityZapEvent.
+	// If this returns false, we skip registering the PigZapEvent handler in the plugin core, and
+	// the Paper compat module handles the EntityZapEvent instead.
+	public default boolean isHandlePigZapEvent() {
+		return true;
+	}
+
 	public void setNoclip(Entity entity);
 
 	// Performs any version-specific setup that needs to happen before the entity is spawned. The
@@ -186,5 +193,11 @@ public interface CompatProvider {
 	public default NamespacedKey cycleZombieNautilusVariant(NamespacedKey variant, boolean backwards) {
 		// Not supported by default.
 		return variant;
+	}
+
+	// MC 26.2 TODO Can be removed once we only support Bukkit 26.2+
+
+	public default void setSulfurCubeSize(LivingEntity sulfurCube, int size) {
+		// Not supported by default.
 	}
 }

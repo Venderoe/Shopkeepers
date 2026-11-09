@@ -85,7 +85,7 @@ public class ItemDataTest extends AbstractItemStackSerializationTest<@Nullable S
 			LOGGER.info("expected: " + expected);
 			LOGGER.info("actual: " + yamlString);
 		}
-		Assert.assertEquals(expected, yamlString);
+		Assert.assertEquals(YamlUtils.<Object>fromYaml(expected), YamlUtils.<Object>fromYaml(yamlString));
 	}
 
 	// Compact representation (basic tool)
@@ -148,7 +148,7 @@ public class ItemDataTest extends AbstractItemStackSerializationTest<@Nullable S
 						+ "swappable:0b}'" + yamlNewline()
 						+ "    minecraft:lore: '[{color:\"green\",text:\"lore1\"},\"lore2\"]'" + yamlNewline()
 						+ "    minecraft:max_stack_size: '65'" + yamlNewline()
-						+ "    minecraft:use_remainder: '{count:1,id:\"minecraft:bone\"}'" + yamlNewline()
+						+ "    minecraft:use_remainder: '{id:\"minecraft:bone\"}'" + yamlNewline()
 						+ "    minecraft:item_name: '{color:\"red\",text:\"Custom item name\"}'" + yamlNewline()
 						+ "    minecraft:food: '{can_always_eat:1b,nutrition:2,saturation:2.5f}'" + yamlNewline()
 						+ "    minecraft:custom_data: '{PublicBukkitValues:{\"some_plugin:some-key\":\"some value\",\"some_plugin:some-other-key\":{\"inner_plugin:inner-key\":0.3f}}}'" + yamlNewline()

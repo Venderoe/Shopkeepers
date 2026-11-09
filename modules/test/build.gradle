@@ -7,9 +7,9 @@ plugins {
 
 dependencies {
 	testImplementation project(':shopkeepers-main')
-	testImplementation project(path: ':shopkeepers-v26_1_R1_paper')
+	testImplementation project(path: ':shopkeepers-v26_3_R1_paper')
 	testImplementation libs.paper.api
-	paperweight.paperDevBundle('26.1.2.build.+')
+	paperweight.paperDevBundle(libs.versions.paper.api.get())
 	testImplementation 'net.kyori:adventure-text-serializer-ansi:5.1.1'
 	testImplementation libs.junit
 	testImplementation libs.hamcrest
